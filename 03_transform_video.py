@@ -416,7 +416,7 @@ class Arc2ArcVideo:
             return self.message, None
         else:
             self.post_transformed_ans()
-        return self.references.__dict__, self.ans
+        return {"references": self.references.__dict__, "ans": self.ans}
 
 
 if __name__ == "__main__":
@@ -493,4 +493,5 @@ if __name__ == "__main__":
         target_section=args.to_section,
         dry_run=args.dry_run,
     ).doit()
+    print('\nRECEIPTS')
     pprint.pp(result)

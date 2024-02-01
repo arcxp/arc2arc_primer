@@ -237,7 +237,7 @@ class Arc2SandboxStory:
         elif not self.dry_run:
             self.post_transformed_ans()
             self.document_redirects()
-        return self.references.__dict__, self.ans, self.circulation
+        return {"references": self.references.__dict__, "ans": self.ans, "circulation": self.circulation}
 
 
 if __name__ == "__main__":
@@ -291,4 +291,5 @@ if __name__ == "__main__":
         target_auth=arc_auth_header_target,
         dry_run=args.dry_run,
     ).doit()
+    print('\nRECEIPTS')
     pprint.pp(result)

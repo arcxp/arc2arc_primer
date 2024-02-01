@@ -132,4 +132,5 @@ if __name__ == "__main__":
         dry_run=args.dry_run,
     ).doit()
 
+    print('\nRECEIPTS')
     pprint.pp(result)
