@@ -93,23 +93,19 @@ Transform one video ANS using its Arc ID, from an Arc organization's production 
 
 ### 05_transform_gallery.py
 Transform one gallery ANS using its Arc ID, from one Arc organization to a second Arc organization, in the production environment.
-During this process the gallery Arc ID will change to a new value. It is not possible to have Photo Center Arc IDs that are the same between different organizations.
+During this process the Gallery Arc ID will change to a new value. It is not possible to have Photo Center Arc IDs that are the same between different organizations.
 This restriction only applies to Photo Center objects.
 
 ### 06_transform_gallery_to_sandbox.py
 Transform one gallery ANS using its Arc ID, from an Arc organization's production environment to its sandbox environment.
-During this process the gallery Arc ID will change to a new value. It is not possible to have Photo Center Arc IDs that are the same between different organizations.
-This restriction only applies to Photo Center objects.
 
 ### 07_transform_image.py
 Transform one image ANS using its Arc ID, from one Arc organization to a second Arc organization, in the production environment.
-During this process the gallery Arc ID will change to a new value. It is not possible to have Photo Center Arc IDs that are the same between different organizations.
+During this process the image Arc ID will change to a new value. It is not possible to have Photo Center Arc IDs that are the same between different organizations.
 This restriction only applies to Photo Center objects.
 
 ### 08_transform_image_to_sandbox.py
 Transform one image ANS using its Arc ID, from an Arc organization's production environment to its sandbox environment.
-During this process the gallery Arc ID will change to a new value. It is not possible to have Photo Center Arc IDs that are the same between different organizations.
-This restriction only applies to Photo Center objects.
 
 ### 09_transform_author.py
 Transform one author object using its author id, from one Arc organization to a second Arc organization, in the production environment.
