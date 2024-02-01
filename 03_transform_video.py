@@ -53,6 +53,9 @@ class Arc2ArcVideo:
     There's no way to get a list of redirects attached to a video, without already knowing the specific redirect url.
     Instead video redirects will have to be recreated using a script where the capi is queried specifically for redirect objects.
     See 11_transform_redirects_all.py
+    - Does not cause the objects in the references to be ingested to the target organization, other than distributors and geographic restrictions.
+    - The returned catalog of references self.references can be used to inform additional operations
+    that might be necessary to bring the referenced objects into the target organization.
 
     Example terminal usage:
     python this_script.py --from-org devtraining --to-org cetest --video-arc_id MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token  --to-token cetest prod token --to-website-site cetest --to-website-section /test  --dry-run 1

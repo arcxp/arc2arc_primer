@@ -37,6 +37,9 @@ class Arc2ArcImage:
     This re-id is necessary when moving Photo Center objects to a new org.
     - Distributor property in the ANS will be written to use the target org distributor ids if they have been created in the target org.
     - Script will attempt to create Distributors used in ANS in the target org.
+    - Does not cause the author objects in the self.references to be ingested to the target organization.
+    - The returned catalog of references self.references can be used to inform additional operations
+    that might be necessary to bring the referenced objects into the target organization.
 
     Example terminal usage:
     python this_script.py --from-org devtraining --to-org cetest --image-arc_id MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token --to-token cetest prod token  --dry-run 1

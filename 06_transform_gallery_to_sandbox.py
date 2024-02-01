@@ -38,6 +38,9 @@ class Arc2SandboxGallery:
     - Script will circulate the gallery to the same website and sections as used in production
     - Distributor property in the ANS will be written to use the sandbox distributor id if it has been created in the sandbox environment.
     - Script will attempt to create sandbox distributor based off of the original one from production, to be used in the sandbox version of the ANS.
+    - Does not cause the objects in the references to be ingested to the target organization, other than distributors.
+    - The returned catalog of references self.references can be used to inform additional operations
+    that might be necessary to bring the referenced objects into the target organization.
 
     Example terminal usage:
     python this_script.py --from-org devtraining  --gallery-arc_id MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token --to-token devtraining sandbox token  --dry-run 1

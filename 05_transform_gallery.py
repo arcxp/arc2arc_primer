@@ -45,6 +45,9 @@ class Arc2ArcGallery:
     - see --to-website-section at bottom of script
     - Distributor property in the ANS will be written to use the target org distributor ids if they have been created in the target org.
     - Script will attempt to create Distributors used in ANS in the target org.
+    - Does not cause the objects in the references to be ingested to the target organization, other than distributors.
+    - The returned catalog of references self.references can be used to inform additional operations
+    that might be necessary to bring the referenced objects into the target organization.
 
     Example terminal usage:
     python this_script.py --from-org devtraining --to-org cetest --gallery-arc_id MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token --to-token cetest prod token --to-website-site cetest --to-website-section /test  --dry-run 1

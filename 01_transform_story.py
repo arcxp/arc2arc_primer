@@ -54,7 +54,10 @@ class Arc2ArcStory:
     - Script will attempt to create Distributors used in ANS in the target org.
     - The script will create document redirects for this story in the source org to the target org.
     - When the script is complete it will display an object showing the document references and redirects that were associated
-    with the source object
+    with the source object, self.references
+    - Does not cause the objects in the references to be ingested to the target organization, other than distributors.
+    - The returned catalog of references self.references can be used to inform additional operations
+    that might be necessary to bring the referenced objects into the target organization.
 
     Example terminal usage:
     python this_script.py --from-org devtraining --to-org cetest --story-arc_id MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token --to-token cetest prod token --to-website-site cetest --to-website-section /test  --dry-run 1

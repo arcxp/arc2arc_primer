@@ -44,12 +44,15 @@ class Arc2SandboxStory:
     The redirects will be added to the references display that are returned when the script is completed.
     - When the script is complete it will display an object showing the document references and redirects that were associated
     with the source object, if those items are useful for verifying the completeness of this piece of content.
+    - Does not cause the objects in the references to be ingested to the target organization, other than distributors.
+    - The returned catalog of references self.references can be used to inform additional operations
+    that might be necessary to bring the referenced objects into the target organization.
 
     Example terminal usage:
     python this_script.py --from-org devtraining --story-arc_id MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token --to-token devtraining sandbox token  --dry-run 1
 
     :modifies:
-        self.document_references
+        self.references
         self.ans
         self.circulation
         self.message

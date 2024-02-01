@@ -35,6 +35,9 @@ class Arc2SandboxImage:
     - Image arc id remains the same.
     - Distributor property in the ANS will be written to use the sandbox distributor ids if they have been created in the sandbox environment.
     - Script will attempt to create sandbox Distributors.
+    - Does not cause the author objects in the self.references to be ingested to the target organization.
+    - The returned catalog of references self.references can be used to inform additional operations
+    that might be necessary to bring the referenced objects into the target organization.
 
     Example terminal usage:
     python this_script.py --from-org devtraining --image-arc_id MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token --to-token devtraining sandbox token  --dry-run 1

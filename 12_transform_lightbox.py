@@ -26,6 +26,9 @@ class Arc2ArcLightbox:
     - The Images behind the references will not be moved into the target organization.
     - Image references are reconstructed to use new image ids.
     This re-id is necessary when moving Photo Center objects to a new org.
+    - Does not cause the image objects in the self.references to be ingested to the target organization.
+    - The returned catalog of references self.references can be used to inform additional operations
+    that might be necessary to bring the referenced objects into the target organization.
 
     Example terminal usage:
     python this_script.py --from-org devtraining --to-org cetest --lightbox-id MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token --to-token cetest prod token  --dry-run 1

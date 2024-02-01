@@ -41,8 +41,8 @@ With the repository open in PyCharm, locate the drop down across the top of the 
 - select "Edit Configurations" from the drop down, opening the Edit Configurations window
 - select the plus (+) icon
 - select Python from menu
-- set Script Path to `/arc2arc_transformations/{name-of-script}.py`
-- set Working Directory to `/arc2arc_transformations/`
+- set Script Path to `/arc2arc_primer/{name-of-script}.py`
+- set Working Directory to `/arc2arc_primer/`
 - verify that the Python Interpreter has been automatically set to the correct value
 - save your changes to complete
 
@@ -52,7 +52,7 @@ Now either the green arrow icon or the green bug icon next to the configurations
 
 You may run the application directly from the terminal.
 
-``$ PYTHONPATH=.  python arc2arc_transformations/{name-of-script}.py ``
+``$ PYTHONPATH=.  python arc2arc_primer/{name-of-script}.py ``
 
 Each script works by passing in a series of script parameters. Each script will require some of the following parameters:
 - the source organization id
@@ -66,7 +66,7 @@ Each script works by passing in a series of script parameters. Each script will 
 - a number of test iterations to run before exiting out of a script that operates on more than one piece of content
 
 For example:
-``$ PYTHONPATH=.  python arc2arc_transformations/01_transform_story.py --from-org devtraining --to-org cetest --story-arcid MBDJUMH35VA4VKRW2Y6S2IR44A --from-token <token> --to-token <token> --to-website-site cetest --to-website-section /test  --dry-run 1``
+``$ PYTHONPATH=.  python arc2arc_primer/01_transform_story.py --from-org devtraining --to-org cetest --story-arcid MBDJUMH35VA4VKRW2Y6S2IR44A --from-token <token> --to-token <token> --to-website-site cetest --to-website-section /test  --dry-run 1``
 
 -----------
 Scripts
@@ -117,9 +117,21 @@ Transform one author object using its author id, from one Arc organization to a 
 ### 10_transform_authors_all.py
 Transform all author objects from one Arc organization to a second Arc organization, in the production environment.
 
-- 11_transform_redirects_all.py
-- 12_transform_lightbox.py
-- 13_transform_collection.py
-- arc_endpoints.py
-- arcid.py
-- dist_ref_id.py
+### 11_transform_redirects_all.py
+Transform all document redirects from one Arc organization to a second Arc organization, in the production environment.  
+Will work well for story document redirects, is potentially problematic for video or gallery document redirects.
+ 
+### 12_transform_lightbox.py
+Transform one lightbox via its lightbox id from one Arc organization's production environment to a target organization's production environment.
+
+### 13_transform_collection.py
+Transform one collection via its ans id from one Arc organization's production environment to a target organization's production environment.
+
+### arc_endpoints.py
+Methods wrapping the Arc APIs so they can be more easily used from within the transformation scripts.
+
+### arcid.py
+A method that creates a new arc id, used from within the transformation scripts.
+
+### dist_ref_id.py
+Methods that work to create new distributors and geographic references, used from with the transformation scripts.

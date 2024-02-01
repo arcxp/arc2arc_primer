@@ -19,8 +19,9 @@ class Arc2ArcCollection:
 
     Results:
     - Collection will exist in target organization's production environment.
-    - References to Arc objects used in Story will be cataloged and a list of them are returned.
-    - The objects behind the references will not be moved into the target organization.
+    - References to Story objects used in the collection will be cataloged and a list of them are returned, self.references.
+    - Does not cause the story objects in self.references to be ingested to the target organization.
+    The returned catalog of references self.references can be used to inform additional operations to bring the referenced objects into the target organization.
 
     Example terminal usage:
     python this_script.py --from-org devtraining --to-org cetest --collection-arcid MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token --to-token cetest prod token --to-website-site cetest --to-website-section /test  --dry-run 1
