@@ -182,5 +182,5 @@ if __name__ == "__main__":
         to_website=args.to_website,
         dry_run=args.dry_run,
     ).doit()
-    print('\nRECEIPTS')
+    print('\nRESULTS')
     pprint.pp(result)

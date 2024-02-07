@@ -84,6 +84,7 @@ class Arc2ArcStory:
         self.arc_auth_header_target = target_auth
         self.from_org = from_org
         self.to_org = to_org
+        self.from_website = ""
         self.story_arc_id = arc_id
         self.target_website = target_website
         self.target_section = target_section
@@ -103,6 +104,7 @@ class Arc2ArcStory:
             self.message
         """
         if self.dry_run:
+            self.references.redirects = ["Story Redirects will not be evaluated during a dry run"]
             print(
                 "THIS IS A TEST RUN. STORY WILL NOT BE CREATED OR UPDATED. NEW DISTRIBUTORS AND RESTRICTIONS WILL NOT BE CREATED."
             )
@@ -329,6 +331,7 @@ class Arc2ArcStory:
         self.references.circulation = {
             self.from_org: source_circulation
         }
+        self.from_website = source_circulation[0]["website"]
 
         # Either reset the first circulated section to the section value passed in the script args, and drop others,
         # or if script args section value is none, leave original sections values as is and only reset the website value
@@ -342,7 +345,6 @@ class Arc2ArcStory:
                     circ2["referent"]["id"] = self.target_section
             if self.target_section:
                 circ["website_primary_section"]["referent"]["id"] = self.target_section
-                self.circulation = [circ]
                 break
 
         # add updated circulation to the references structure
@@ -351,9 +353,9 @@ class Arc2ArcStory:
             self.circulation,
             jmespath.Options(dict_cls=dict),
         )
-        self.references.circulation = {
+        self.references.circulation.update({
             self.to_org: target_circulation
-        }
+        })
 
     def other_supporting_references(self):
         """
@@ -437,7 +439,7 @@ class Arc2ArcStory:
         """
         story_res6 = requests.get(
             arc_endpoints.get_story_redirects_url(
-                self.from_org, self.story_arc_id, self.ans.get("canonical_website")
+                self.from_org, self.story_arc_id, self.from_website
             ),
             headers=self.arc_auth_header_source,
         )
@@ -553,5 +555,5 @@ if __name__ == "__main__":
         dry_run=args.dry_run,
     ).doit()
 
-    print('\nRECEIPTS')
+    print('\nRESULTS')
     pprint.pp(result)

@@ -392,5 +392,5 @@ if __name__ == "__main__":
         target_auth=arc_auth_header_target,
         dry_run=args.dry_run,
     ).doit()
-    print('\nRECEIPTS')
+    print('\nRESULTS')
     pprint.pp(result)
