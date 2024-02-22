@@ -101,22 +101,27 @@ class Arc2ArcLightbox:
 
     def post_transformed_lightbox(self):
         # post lightbox to new organization
-        lightbox_res2 = requests.post(
-            arc_endpoints.get_lightbox_url(self.to_org),
-            headers=self.arc_auth_header_target,
-            json=self.lightbox,
-        )
-        print("lightbox posted to new org", lightbox_res2)
-        if lightbox_res2.ok:
-            new_lightbox_id = lightbox_res2.json().get("id")
-            lightbox_res3 = requests.post(
-                arc_endpoints.get_lightbox_url(self.to_org, new_lightbox_id, True),
+        try:
+            lightbox_res2 = requests.post(
+                arc_endpoints.get_lightbox_url(self.to_org),
                 headers=self.arc_auth_header_target,
-                json=self.lightbox_images_newids,
+                json=self.lightbox,
             )
-            print("photos posted to new lightbox in new org", lightbox_res3)
+        except Exception as e:
+            self.message = f"{lightbox_res2.status_code} {lightbox_res2.reason} {str(e)}"
+
         else:
-            self.message = f"{lightbox_res2} {self.from_org} {self.lightbox_id} {lightbox_res2.text}"
+            print("lightbox posted to new org", lightbox_res2)
+            if lightbox_res2.ok:
+                new_lightbox_id = lightbox_res2.json().get("id")
+                lightbox_res3 = requests.post(
+                    arc_endpoints.get_lightbox_url(self.to_org, new_lightbox_id, True),
+                    headers=self.arc_auth_header_target,
+                    json=self.lightbox_images_newids,
+                )
+                print("photos posted to new lightbox in new org", lightbox_res3)
+            else:
+                self.message = f"{lightbox_res2} {self.from_org} {self.lightbox_id} {lightbox_res2.text}"
 
     def doit(self):
         self.fetch_source_lightbox()
@@ -128,6 +133,8 @@ class Arc2ArcLightbox:
             return self.message
         if not self.dry_run:
             self.post_transformed_lightbox()
+            if self.message:
+                print(self.message)
         return self.references.__dict__
 
 
@@ -136,44 +143,44 @@ if __name__ == "__main__":
     parser.add_argument(
         "--from-org",
         dest="org",
+        help="source organization id value; org for production or sandbox.org for sandbox",
         required=True,
         default="",
-        help="source organization id value; org for production or sandbox.org for sandbox'",
     )
     parser.add_argument(
         "--to-org",
         dest="to_org",
+        help="target organization id value; org for production or sandbox.org for sandbox",
         required=True,
         default="",
-        help="target organization id value; org for production or sandbox.org for sandbox'",
     )
     parser.add_argument(
         "--from-token",
         dest="from_token",
+        help="source organization bearer token; production environment",
         required=True,
         default="",
-        help="source organization bearer token; production environment'",
     )
     parser.add_argument(
         "--to-token",
         dest="to_token",
+        help="target organization bearer token; production environment",
         required=True,
         default="",
-        help="target organization bearer token; production environment'",
     )
     parser.add_argument(
         "--lightbox-id",
         dest="lightbox_id",
+        help="lightbox id to migrate into target org",
         required=True,
         default="",
-        help="lightbox id to migrate into target org",
     )
     parser.add_argument(
         "--dry-run",
         dest="dry_run",
+        help="Set this to 1 to test the results of transforming a lightbox. The lightbox will not actually post to the target org.",
         required=False,
         default=1,
-        help="Set this to 1 to test the results of transforming a lightbox. The lightbox will not actually post to the target org.",
     )
     args = parser.parse_args()
 

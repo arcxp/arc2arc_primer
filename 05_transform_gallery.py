@@ -3,10 +3,12 @@ import pprint
 from dataclasses import dataclass
 from typing import Optional
 
+import arc2arc_exceptions
 import arc_endpoints
 import arc_id
 import dist_ref_id
 import jmespath
+import json
 import requests
 
 
@@ -86,10 +88,9 @@ class Arc2ArcGallery:
 
     def fetch_source_ans(self):
         """
-        Will not return source ANS if target object already exists unless --dry-run 1, because
-           - Reducing unnecessary Migration Center API calls to make it easier to debug process
-        You can see what the target ANS of an object looks like without creating it by passing in script parameter --dry_run 1
-            - this includes objects already created in the target org
+        Pulls back the source ANS with the given gallery ANS id.
+        Checks the exact ANS id from the source org, then checks the regenerated id as it would be in the target org.
+        if the Gallery already exists, resulting ANS is not returned.
 
         :modifies:
             self.ans
@@ -265,13 +266,51 @@ class Arc2ArcGallery:
         self.ans["canonical_website"] = self.target_website
         self.ans["websites"] = {
             self.target_website: {
-                "website_url": self.ans.get("canonical_url"),
+                "website_url": self.ans.get("canonical_url", ""),
                 "website_section": section_reference,
             }
         }
         self.ans.pop("canonical_url", None)
         self.ans["taxonomy"].pop("primary_site", None)
         self.ans["taxonomy"].pop("sites", None)
+
+    def transform_content_elements(self):
+        """
+        Galleries don't retain reference syntax when fetched from the API, but the reference syntax is necessary to ingest a new gallery object.
+
+        Finds and rewrites Photo Center references in ANS that will need to be ingested into target organization.
+        Re-ids references from Photo Center objects and documents both old and new ids in the return object self.references
+        New ids are used in the rewritten references.
+
+        :modifies:
+            self.references
+            self.ans
+        """
+        # make the image ids in the content_elements unique. hash(original_id + org_id)
+        ce_imgs = self.ans["content_elements"]
+        references_images_newids = {}
+        for index, element in enumerate(ce_imgs):
+            old_id = element["_id"]
+            # generate new arc id for this photo center object
+            regen_id = arc_id.generate_arc_id(old_id, self.to_org)
+            # build the display information for self.references
+            references_images_newids.update({old_id: regen_id})
+            # rewrite the ANS reference in content_elements
+            element = {
+                "type": "reference",
+                "_id": regen_id,
+                "referent": {
+                    "id": regen_id,
+                    "type": "image",
+                    "referent_properties": {
+                        "additional_properties": {"original_arc_id": old_id}
+                    },
+                },
+            }
+            ce_imgs[index] = element
+        # update the display information in self.references
+        self.references.images = {self.from_org: self.to_org}
+        self.references.images.update(references_images_newids)
 
     def transform_distributor(self):
         """
@@ -316,40 +355,6 @@ class Arc2ArcGallery:
                     orig_dist_id, None
                 )
 
-    def transform_content_elements(self):
-        """
-        Galleries don't retain reference syntax when fetched from the API, but the reference syntax is necessary to ingest a new gallery object.
-
-        Finds and rewrites Photo Center references in ANS that will need to be ingested into target organization.
-        Re-ids references from Photo Center objects and documents both old and new ids in the return object self.references
-        New ids are used in the rewritten references.
-
-        :modifies:
-            self.references
-            self.ans
-        """
-        # make the image ids in the content_elements unique. hash(original_id + org_id)
-        ce_imgs = self.ans["content_elements"]
-        references_images_newids = {}
-        for index, element in enumerate(ce_imgs):
-            old_id = element["_id"]
-            regen_id = arc_id.generate_arc_id(old_id, self.to_org)
-            references_images_newids.update({old_id: regen_id})
-            element = {
-                "type": "reference",
-                "_id": regen_id,
-                "referent": {
-                    "id": regen_id,
-                    "type": "image",
-                    "referent_properties": {
-                        "additional_properties": {"original_arc_id": old_id}
-                    },
-                },
-            }
-            ce_imgs[index] = element
-        self.references.images = {self.from_org: self.to_org}
-        self.references.images.update(references_images_newids)
-
     def transform_promo_item(self):
         """
         Galleries don't retain reference syntax when fetched from the API, but the reference syntax is necessary to ingest a new gallery object.
@@ -360,7 +365,7 @@ class Arc2ArcGallery:
         :modifies:
             self.ans
         """
-        # not adding this id to self.references because it is expected to be one of the ids already found in content_elements
+        # not adding this id to self.references because it must be one of the ids already found in content_elements
         if self.ans.get("promo_items", {}).get("basic"):
             old_id = self.ans["promo_items"]["basic"]["_id"]
             regen_id = arc_id.generate_arc_id(old_id, self.to_org)
@@ -378,28 +383,45 @@ class Arc2ArcGallery:
 
     def validate_transform(self):
         # Validate transformed ANS
-        gallery_res2 = requests.post(
-            arc_endpoints.ans_validation_url(self.to_org),
-            headers=self.arc_auth_header_target,
-            json=self.ans,
-        )
-        if gallery_res2.ok:
-            self.validation = True
+        try:
+            gallery_res2 = requests.post(
+                arc_endpoints.ans_validation_url(self.to_org),
+                headers=self.arc_auth_header_target,
+                json=self.ans,
+            )
+            if gallery_res2.ok:
+                self.validation = True
+            else:
+                self.message = f"{gallery_res2} {gallery_res2.text}"
+                self.validation = False
+
+            # raise custom error only if the error is due to creating a new distributor. should only happen the first time a new distributor is attempted.
+            if gallery_res2.status_code == 400 and jmespath.search("[*].message", json.loads(gallery_res2.text)) == ['should NOT have additional properties', 'should be equal to one of values', 'should be string', 'should match exactly one schema in oneOf']:
+                raise arc2arc_exceptions.MakingNewDistributorFirstTimeException
+
+        except Exception as e:
+            self.message = f"{str(e)} full error: {gallery_res2.text}" if e.__module__ == "arc2arc_exceptions" else f"{gallery_res2} {gallery_res2.text}"
         else:
-            self.message = f"{gallery_res2} {gallery_res2.text}"
-            self.validation = False
-        print("gallery validation", self.validation, self.gallery_arc_id)
+            print("gallery validation", self.validation, self.gallery_arc_id)
 
     def post_transformed_ans(self):
         # post transformed ans to new organization
         mc = MigrationJson(self.ans, {})
-        gallery_res3 = requests.post(
-            arc_endpoints.mc_create_ans_url(self.to_org),
-            headers=self.arc_auth_header_target,
-            json=mc.__dict__,
-            params={"ansId": self.gallery_arc_id, "ansType": "gallery"},
-        )
-        print("ans posted to MC", gallery_res3)
+        self.message = None
+        try:
+            gallery_res3 = requests.post(
+                arc_endpoints.mc_create_ans_url(self.to_org),
+                headers=self.arc_auth_header_target,
+                json=mc.__dict__,
+                params={"ansId": self.gallery_arc_id, "ansType": "gallery"},
+            )
+            if not gallery_res3.ok:
+                raise arc2arc_exceptions.ArcObjectToMigrationCenterFailed
+
+        except Exception as e:
+            self.message = f"{str(e)} {gallery_res3.status_code} {gallery_res3.reason} {gallery_res3.text}"
+        else:
+            print(f"ans posted to {self.to_org} Migration Center", gallery_res3)
 
     def doit(self):
         self.fetch_source_ans()
@@ -412,11 +434,12 @@ class Arc2ArcGallery:
         self.transform_distributor()
         self.transform_circulation()
         self.validate_transform()
-        # self.validation = True
         if not self.validation:
             return self.message, None
         elif not self.dry_run:
             self.post_transformed_ans()
+            if self.message:
+                print(self.message)
         return {"references": self.references.__dict__, "ans": self.ans}
 
 
@@ -425,58 +448,58 @@ if __name__ == "__main__":
     parser.add_argument(
         "--from-org",
         dest="org",
+        help="source organization id value; org for production or sandbox.org for sandbox",
         required=True,
         default="",
-        help="source organization id value; org for production or sandbox.org for sandbox'",
     )
     parser.add_argument(
         "--to-org",
         dest="to_org",
+        help="target organization id value; org for production or sandbox.org for sandbox",
         required=True,
         default="",
-        help="target organization id value; org for production or sandbox.org for sandbox'",
     )
     parser.add_argument(
         "--from-token",
         dest="from_token",
+        help="source organization bearer token; production environment",
         required=True,
         default="",
-        help="source organization bearer token; production environment'",
     )
     parser.add_argument(
         "--to-token",
         dest="to_token",
+        help="target organization bearer token; production environment",
         required=True,
         default="",
-        help="target organization bearer token; production environment'",
     )
     parser.add_argument(
         "--to-website-site",
         dest="to_website",
+        help="target organization's website name'",
         required=True,
         default="",
-        help="target organization's website name'",
     )
     parser.add_argument(
         "--to-website-section",
         dest="to_section",
+        help="target organization's website section  id value.  If none, original sections are retained.",
         required=False,
         default="",
-        help="target organization's website section  id value.  If none, original sections are retained.'",
     )
     parser.add_argument(
         "--gallery-arc-id",
         dest="gallery_arc_id",
+        help="arc id value of gallery to migrate into target org",
         required=True,
         default="",
-        help="arc id value of gallery to migrate into target org",
     )
     parser.add_argument(
         "--dry-run",
         dest="dry_run",
+        help="Set this to 1 to test the results of transforming an object. The object will not actually post to the target org.",
         required=False,
         default=0,
-        help="Set this to 1 to test the results of transforming an object. The object will not actually post to the target org.",
     )
 
     args = parser.parse_args()

@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from typing import Optional
 
 import arc_endpoints
+import arc2arc_exceptions
 import dist_ref_id
 import jmespath
+import json
 import requests
 
 
@@ -125,40 +127,6 @@ class Arc2SandboxVideo:
             "ingestionMethod"
         ] = f"copied from production {self.from_org} to {self.to_org}"
 
-    def transform_promo_item(self):
-        """
-        Video `promo_items` don't use normal reference syntax
-
-        rebuild `promo_items` ANS, causing the image to be imported into the target org
-        remove the original promo item's anglerfish/photo center ans id from the ANS in `additional_properties`
-            anglerfish_id exists in additional_properties when a user has manually created a thumbnail from a video using the UI
-            and also checked a box in the UI to save the thumbnail to photo center. When you create the thumbnail with the PC API,
-            the image is not also added to Photo Center (this is a bug that is on the roadmap to be fixed).
-            Since maintaining anglerfish_id when creating an image with the API is meaningless, remove it to avoid confusion and extra work
-
-        :modifies:
-            self.ans
-        """
-        try:
-            anglerfish = self.ans["additional_properties"]["anglerfisharc_id"]
-            self.ans["additional_properties"].pop(anglerfish)
-            self.ans["additional_properties"].pop("anglerfisharc_id")
-        except:
-            pass
-
-        # promo image/promo item; rebuild the promo item ANS, causing the image to be imported into the new org
-        if self.ans.get("promo_image").get("url"):
-            self.ans["promo_items"] = {
-                "basic": {
-                    "type": "image",
-                    "url": self.ans["promo_image"]["url"],
-                    "version": "0.8.0",
-                }
-            }
-            self.ans.pop("promo_image", None)
-        else:
-            self.ans.pop("promo_items", None)
-            self.ans.pop("promo_image", None)
 
     def transform_circulation(self):
         """
@@ -171,7 +139,7 @@ class Arc2SandboxVideo:
         :modifies:
             self.ans
         """
-        # reformat taxonomy.primary_section, sections to use references
+        # reformat taxonomy.primary_section, sections to references format
         self.ans["taxonomy"].pop("primary_site", None)
         self.ans["taxonomy"].pop("sites", None)
         section = self.ans["taxonomy"]["primary_section"]["_id"]
@@ -197,9 +165,45 @@ class Arc2SandboxVideo:
                 section_reference["referent"].pop("referent_properties", None)
             self.ans["taxonomy"]["sections"][i] = section_reference
 
-        # reformat websites to remove site data
+        # reformat websites property to remove section data, an empty object in this key is acceptable
         for w in self.ans["websites"]:
             self.ans["websites"][w].pop("website_section", None)
+
+    def transform_promo_item(self):
+        """
+        Video `promo_items` don't use normal reference syntax
+
+        rebuild `promo_items` ANS, causing the image to be imported into the target org
+        remove the original promo item's anglerfish/photo center ans id from the ANS in `additional_properties`
+            anglerfish_id exists in additional_properties when a user has manually created a thumbnail from a video using the UI
+            and also checked a box in the UI to save the thumbnail to photo center. When you create the thumbnail with the PC API,
+            the image is not also added to Photo Center (this is a bug that is on the roadmap to be fixed).
+            Since maintaining anglerfish_id when creating an image with the API is meaningless, remove it to avoid confusion and extra work
+
+        :modifies:
+            self.ans
+        """
+        # remove the original promo item's anglerfish information from the ans
+        try:
+            anglerfish = self.ans["additional_properties"]["anglerfisharc_id"]
+            self.ans["additional_properties"].pop(anglerfish)
+            self.ans["additional_properties"].pop("anglerfisharc_id")
+        except:
+            pass
+
+        # promo image/promo item; rebuild the promo item ANS, causing the image to be imported into the new org
+        if self.ans.get("promo_image").get("url"):
+            self.ans["promo_items"] = {
+                "basic": {
+                    "type": "image",
+                    "url": self.ans["promo_image"]["url"],
+                    "version": "0.8.0",
+                }
+            }
+            self.ans.pop("promo_image", None)
+        else:
+            self.ans.pop("promo_items", None)
+            self.ans.pop("promo_image", None)
 
     def transform_distributor(self):
         """
@@ -276,17 +280,23 @@ class Arc2SandboxVideo:
     def other_supporting_references(self):
         """
         adds `related_content` objects to document references
-        script does not create redirects
+        removes `related_content if the .basic property is malformed containing no content, otherwise validation will fail
+        does not look for Authors
+            - normally you would write an author as a reference when creating a video if it is an Arc Author
+            - author fields in video are returned from the API as local to the document, not as Arc Author object references
+            - determining if they are genuine Arc authors would require more API calls and then rewriting the author as a reference if so
+            - the payoff of this extra work is not worth the cost since you can get by with sending in the author
+            in the same form as it comes back from the API
+        does not look for redirects
             - redirects attached to the Video are possible, but they are not represented in the Video ANS directly
             - it is not possible to discover the video redirects using a video's arc id or video canonical url
             - to find video redirects you must query content api `type: redirect` and then run a 2nd query using the
                 url returned from 1st query to determine if it is for a video
-            - see 11_tranform_redirects_all.py
+            - see 11_transform_redirects-all.py
 
         :modifies:
             self.references
         """
-        # related_content, but remove if malformed because will fail the ANS validation
         if self.ans.get("related_content", {}).get("basic"):
             if not jmespath.search("related_content.basic[*]._id", self.ans):
                 self.ans["related_content"]["basic"] = []
@@ -298,31 +308,49 @@ class Arc2SandboxVideo:
                 )
 
     def validate_transform(self):
-        video_res2 = requests.post(
-            arc_endpoints.ans_validation_url(self.to_org, "0.8.0"),
-            headers=self.arc_auth_header_target,
-            json=self.ans,
-        )
-        if video_res2.ok:
-            self.validation = True
+        # Validate transformed ANS
+        try:
+            video_res2 = requests.post(
+                arc_endpoints.ans_validation_url(self.to_org, "0.8.0"),
+                headers=self.arc_auth_header_target,
+                json=self.ans,
+            )
+            if video_res2.ok:
+                self.validation = True
+            else:
+                self.validation = False
+                self.message = f"{video_res2} {video_res2.text}"
+
+            # raise custom error only if the error is due to creating a new distributor. should only happen the first time a new distributor is attempted.
+            if video_res2.status_code == 400 and jmespath.search("[*].message", json.loads(video_res2.text)) == ['should NOT have additional properties', 'should be equal to one of values', 'should be string', 'should match exactly one schema in oneOf']:
+                raise arc2arc_exceptions.MakingNewDistributorFirstTimeException
+
+        except Exception as e:
+            self.message = f"{str(e)} full error: {video_res2.text}" if e.__module__ == "arc2arc_exceptions" else f"{video_res2} {video_res2.text}"
         else:
-            self.validation = False
-            self.message = f"{video_res2} {video_res2.text}"
-        print("video validation", self.validation, self.video_arc_id)
+            print("video validation", self.validation, self.video_arc_id)
 
     def post_transformed_ans(self):
         if not self.dry_run:
+            self.message = None
             # post transformed ans to sandbox
-            mc = MigrationJson(
-                self.ans, {"video": {"transcoding": False, "useLastUpdated": True}}
-            )
-            video_res3 = requests.post(
-                arc_endpoints.mc_create_ans_url(self.to_org),
-                headers=self.arc_auth_header_target,
-                json=mc.__dict__,
-                params={"ansId": self.video_arc_id, "ansType": "video"},
-            )
-            print("ans posted to sandbox MC", video_res3)
+            try:
+                mc = MigrationJson(
+                    self.ans, {"video": {"transcoding": False, "useLastUpdated": True}}
+                )
+                video_res3 = requests.post(
+                    arc_endpoints.mc_create_ans_url(self.to_org),
+                    headers=self.arc_auth_header_target,
+                    json=mc.__dict__,
+                    params={"ansId": self.video_arc_id, "ansType": "video"},
+                )
+                if not video_res3.ok:
+                    raise arc2arc_exceptions.ArcObjectToMigrationCenterFailed
+
+            except Exception as e:
+                self.message = f"{str(e)} {video_res3.status_code} {video_res3.reason} {video_res3.text}"
+            else:
+                print("ans posted to sandbox Migration Center", video_res3)
 
     def doit(self):
         self.fetch_source_ans()
@@ -339,6 +367,8 @@ class Arc2SandboxVideo:
             return self.message, None
         else:
             self.post_transformed_ans()
+            if self.message:
+                print(self.message)
         return {"references": self.references.__dict__, "ans": self.ans}
 
 
@@ -347,37 +377,37 @@ if __name__ == "__main__":
     parser.add_argument(
         "--from-org",
         dest="org",
+        help="production organization id. the to-org is automatically the sandbox version of this value.",
         required=True,
         default="",
-        help="production organization id. the to-org is automatically the sandbox version of this value.",
     )
     parser.add_argument(
         "--from-token",
         dest="from_token",
+        help="production environment organization bearer token",
         required=True,
         default="",
-        help="production environment organization bearer token",
     )
     parser.add_argument(
         "--to-token",
         dest="to_token",
+        help="sandbox environment organization bearer token",
         required=True,
         default="",
-        help="sandbox environment organization bearer token",
     )
     parser.add_argument(
         "--video-arc-id",
         dest="video_arc_id",
+        help="arc id value of video to migrate into sandbox environment",
         required=True,
         default="",
-        help="arc id value of video to migrate into sandbox environment",
     )
     parser.add_argument(
         "--dry-run",
         dest="dry_run",
+        help="A video that exists in the target org will not be processed.  Set this to 1 to process the video enough to see the transformed ANS.  However, the video will not actually post to the target org.",
         required=False,
         default=0,
-        help="A video that exists in the target org will not be processed.  Set this to 1 to process the video enough to see the transformed ANS.  However, the video will not actually post to the target org.",
     )
     args = parser.parse_args()
 

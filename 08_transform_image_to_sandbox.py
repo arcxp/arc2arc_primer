@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from typing import Optional
 
 import arc_endpoints
+import arc2arc_exceptions
 import dist_ref_id
 import jmespath
+import json
 import requests
 
 
@@ -191,28 +193,47 @@ class Arc2SandboxImage:
 
     def validate_transform(self):
         # Validate transformed ANS
-        image_res2 = requests.post(
-            arc_endpoints.ans_validation_url(self.to_org),
-            headers=self.arc_auth_header_target,
-            json=self.ans,
-        )
-        if image_res2.ok:
-            self.validation = True
-            self.photo_center_specific_properties(remove=False, put_back=True)
+        try:
+            image_res2 = requests.post(
+                arc_endpoints.ans_validation_url(self.to_org),
+                headers=self.arc_auth_header_target,
+                json=self.ans,
+            )
+            if image_res2.ok:
+                self.validation = True
+                self.photo_center_specific_properties(remove=False, put_back=True)
+            else:
+                self.message = f"{image_res2} {image_res2.text}"
+                self.validation = False
+
+            # raise custom error only if the error is due to creating a new distributor. should only happen the first time a new distributor is attempted.
+            if image_res2.status_code == 400 and jmespath.search("[*].message", json.loads(image_res2.text)) == ['should NOT have additional properties', 'should be equal to one of values', 'should be string', 'should match exactly one schema in oneOf']:
+                raise arc2arc_exceptions.MakingNewDistributorFirstTimeException
+
+        except Exception as e:
+            self.message = f"{str(e)} full error: {image_res2.text}" if e.__module__ == "arc2arc_exceptions" else f"{image_res2} {image_res2.text}"
         else:
-            self.message = f"{image_res2} {image_res2.text}"
-            self.validation = False
-        print("image validation", self.validation, self.image_arc_id)
+            print("image validation", self.validation, self.image_arc_id)
 
     def post_transformed_ans(self):
+        # post transformed ans to new organization
         mc = MigrationJson(self.ans, {})
-        image_res3 = requests.post(
-            arc_endpoints.mc_create_ans_url(self.to_org),
-            headers=arc_auth_header_target,
-            json=mc.__dict__,
-            params={"ansId": self.image_arc_id, "ansType": "image"},
-        )
-        print("image sent to sandbox MC", image_res3, image_res3.json())
+        self.message = None
+        try:
+            image_res3 = requests.post(
+                arc_endpoints.mc_create_ans_url(self.to_org),
+                headers=arc_auth_header_target,
+                json=mc.__dict__,
+                params={"ansId": self.image_arc_id, "ansType": "image"},
+            )
+
+            if not image_res3.ok:
+                raise arc2arc_exceptions.ArcObjectToMigrationCenterFailed
+
+        except Exception as e:
+            self.message = f"{str(e)} {image_res3.status_code} {image_res3.reason} {image_res3.text}"
+        else:
+            print("ans posted to sandbox Migration Center", image_res3, image_res3.json())
 
     def doit(self):
         self.fetch_source_ans()
@@ -226,6 +247,8 @@ class Arc2SandboxImage:
             return self.message, None
         elif not self.dry_run:
             self.post_transformed_ans()
+            if self.message:
+                print(self.message)
         return {"references": self.references.__dict__, "ans": self.ans}
 
 
@@ -234,37 +257,37 @@ if __name__ == "__main__":
     parser.add_argument(
         "--from-org",
         dest="org",
+        help="source organization id value; org for production or sandbox.org for sandbox",
         required=True,
         default="",
-        help="source organization id value; org for production or sandbox.org for sandbox'",
     )
     parser.add_argument(
         "--from-token",
         dest="from_token",
+        help="source organization bearer token; production environment",
         required=True,
         default="",
-        help="source organization bearer token; production environment'",
     )
     parser.add_argument(
         "--to-token",
         dest="to_token",
+        help="target organization bearer token; production environment",
         required=True,
         default="",
-        help="target organization bearer token; production environment'",
     )
     parser.add_argument(
         "--image-arc-id",
         dest="image_arc_id",
+        help="arc id value of image to migrate into target org",
         required=True,
         default="",
-        help="arc id value of image to migrate into target org",
     )
     parser.add_argument(
         "--dry-run",
         dest="dry_run",
+        help="Set this to 1 to test the results of transforming an object. The object will not actually post to the target org.",
         required=False,
         default=0,
-        help="Set this to 1 to test the results of transforming an object. The object will not actually post to the target org.",
     )
     args = parser.parse_args()
 

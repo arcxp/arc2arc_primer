@@ -83,8 +83,8 @@ def create_target_distributor_restrictions(
                         ]:  # WARN won't work when more than 1 website
                             site["siteId"] = to_website
 
+                        # make distributor restriction
                         # might not be able to create the restriction (500 error) if one just like this already exists
-                        print("make distributor restriction")
                         try:
                             restr_res = requests.post(
                                 arc_endpoints.get_restriction_url(to_org),
@@ -95,7 +95,6 @@ def create_target_distributor_restrictions(
                                 0, {"id": restr_res.json().get("data").get("id")}
                             )
                         except:
-                            print("restriction did not make")
                             # find existing restriction by the restriction name.  Use that id.
                             # if this doesn't work the restrictions will end up as an empty array
                             # and you'll have to recreate the restrictions manually in the UI
@@ -103,7 +102,6 @@ def create_target_distributor_restrictions(
                                 f"[*] | [?name==`{restr['name']}`].id", all_restrictions
                             )
                             if existing_restr_id:
-                                print("restriction already existed")
                                 new_restr_ids.insert(0, {"id": existing_restr_id[0]})
 
                 transformed_ans = dist_res.json()

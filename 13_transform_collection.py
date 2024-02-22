@@ -96,14 +96,18 @@ class Arc2ArcCollection:
 
     def post_transformed_collection(self):
         # post collection to new organization
-        collection_res2 = requests.post(
-            arc_endpoints.get_collection_url(self.to_org),
-            headers=self.arc_auth_header_target,
-            json=self.collection,
-        )
-        print("collection posted to new org", collection_res2)
-        if not collection_res2.ok:
-            self.message = f"{collection_res2} {self.from_org} {self.collection_arc_id} {collection_res2.text}"
+        try:
+            collection_res2 = requests.post(
+                arc_endpoints.get_collection_url(self.to_org),
+                headers=self.arc_auth_header_target,
+                json=self.collection,
+            )
+            if not collection_res2.ok:
+                self.message = f"{collection_res2} {self.from_org} {self.collection_arc_id} {collection_res2.text}"
+        except Exception as e:
+            self.message = str(e)
+        else:
+            print(f"collection posted to {self.to_org} org", collection_res2)
 
     def doit(self):
         self.fetch_source_collection()
@@ -114,6 +118,8 @@ class Arc2ArcCollection:
             return self.message
         if not self.dry_run:
             self.post_transformed_collection()
+            if self.message:
+                print(self.message)
         return self.references.__dict__
 
 
@@ -122,51 +128,51 @@ if __name__ == "__main__":
     parser.add_argument(
         "--from-org",
         dest="org",
+        help="source organization id value; org for production or sandbox.org for sandbox",
         required=True,
         default="",
-        help="source organization id value; org for production or sandbox.org for sandbox'",
     )
     parser.add_argument(
         "--to-org",
         dest="to_org",
+        help="target organization id value; org for production or sandbox.org for sandbox",
         required=True,
         default="",
-        help="target organization id value; org for production or sandbox.org for sandbox'",
     )
     parser.add_argument(
         "--from-token",
         dest="from_token",
+        help="source organization bearer token; production environment",
         required=True,
         default="",
-        help="source organization bearer token; production environment'",
     )
     parser.add_argument(
         "--to-token",
         dest="to_token",
+        help="target organization bearer token; production environment",
         required=True,
         default="",
-        help="target organization bearer token; production environment'",
     )
     parser.add_argument(
         "--to-website-site",
         dest="to_website",
+        help="target organization's website name",
         required=True,
         default="",
-        help="target organization's website name'",
     )
     parser.add_argument(
         "--collection-arc-id",
         dest="collection_arc_id",
+        help="Collection id to migrate into target org",
         required=True,
         default="",
-        help="Collection id to migrate into target org",
     )
     parser.add_argument(
         "--dry-run",
         dest="dry_run",
+        help="Set this to 1 to test the results of transforming a collection. The collection will not actually post to the target org.",
         required=False,
         default=1,
-        help="Set this to 1 to test the results of transforming a collection. The collection will not actually post to the target org.",
     )
     args = parser.parse_args()
 

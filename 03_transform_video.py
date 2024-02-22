@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from typing import Optional
 
 import arc_endpoints
+import arc2arc_exceptions
 import dist_ref_id
 import jmespath
+import json
 import requests
 
 
@@ -17,7 +19,6 @@ class MigrationJson:
 
 @dataclass
 class DocumentReferences:
-    images: Optional[dict] = None
     distributor: Optional[dict] = None
     related_content: Optional[list] = None
     geo_restrictions: Optional[dict] = None
@@ -189,7 +190,7 @@ class Arc2ArcVideo:
             self.target_website: {"website_url": self.ans["canonical_url"]}
         }
 
-        # reformat taxonomy.primary_section, sections to use references
+        # reformat taxonomy.primary_section, sections to use references format
         orig_primary_section_id = self.ans["taxonomy"]["primary_section"]["_id"]
         if self.target_section:
             section_reference = {
@@ -227,13 +228,14 @@ class Arc2ArcVideo:
                 }
                 self.ans["taxonomy"]["sections"][index] = section_reference
 
-        # add updated circulation to the references structure
+        # filter the target circulation for only the section and website data; add to self.references for return display
         target_circulation = jmespath.search(
             "[*].{section: referent.id, website: referent.website}[]",
             self.ans["taxonomy"]["sections"],
             jmespath.Options(dict_cls=dict),
         )
-        self.references.circulation = {self.to_org: target_circulation}
+        # set information for return display to make clear what changes occurred between source and target circulation
+        self.references.circulation.update({self.to_org: target_circulation})
 
     def transform_promo_item(self):
         """
@@ -298,9 +300,7 @@ class Arc2ArcVideo:
                 self.target_website,
             )
             self.references.distributor = references_distributor
-            self.references.distributor.update(
-                {self.from_org: self.to_org}
-            ) if references_distributor else None
+            self.references.distributor.update({self.from_org: self.to_org}) if references_distributor else None
 
         if jmespath.search("distributor.reference_id", self.ans):
             orig_dist_id = self.ans["distributor"]["reference_id"]
@@ -347,13 +347,14 @@ class Arc2ArcVideo:
     def other_supporting_references(self):
         """
         adds `related_content` objects to document references
-        script does not add Authors
+        removes `related_content if the .basic property is malformed containing no content, otherwise validation will fail
+        does not look for Authors
             - normally you would write an author as a reference when creating a video if it is an Arc Author
             - author fields in video are returned from the API as local to the document, not as Arc Author object references
             - determining if they are genuine Arc authors would require more API calls and then rewriting the author as a reference if so
             - the payoff of this extra work is not worth the cost since you can get by with sending in the author
             in the same form as it comes back from the API
-        script does not create redirects
+        does not look for redirects
             - redirects attached to the Video are possible, but they are not represented in the Video ANS directly
             - it is not possible to discover the video redirects using a video's arc id or video canonical url
             - to find video redirects you must query content api `type: redirect` and then run a 2nd query using the
@@ -363,7 +364,6 @@ class Arc2ArcVideo:
         :modifies:
             self.references
         """
-        # related_content property, but remove from ANS if malformed because will fail the ANS validation
         if self.ans.get("related_content", {}).get("basic"):
             self.references.related_content = jmespath.search(
                 "related_content.basic[*].{id: _id, type: referent.type}",
@@ -375,31 +375,48 @@ class Arc2ArcVideo:
 
     def validate_transform(self):
         # Validate transformed ANS
-        video_res2 = requests.post(
-            arc_endpoints.ans_validation_url(self.from_org, "0.8.0"),
-            headers=self.arc_auth_header_source,
-            json=self.ans,
-        )
-        if video_res2.ok:
-            self.validation = True
+        try:
+            video_res2 = requests.post(
+                arc_endpoints.ans_validation_url(self.from_org, "0.8.0"),
+                headers=self.arc_auth_header_source,
+                json=self.ans,
+            )
+            if video_res2.ok:
+                self.validation = True
+            else:
+                self.message = f"{video_res2} {video_res2.text} "
+                self.validation = False
+
+            # raise custom error only if the error is due to creating a new distributor. should only happen the first time a new distributor is attempted.
+            if video_res2.status_code == 400 and jmespath.search("[*].message", json.loads(video_res2.text)) == ['should NOT have additional properties', 'should be equal to one of values', 'should be string', 'should match exactly one schema in oneOf']:
+                raise arc2arc_exceptions.MakingNewDistributorFirstTimeException
+
+        except Exception as e:
+            self.message = f"{str(e)} full error: {video_res2.text}" if e.__module__ == "arc2arc_exceptions" else f"{video_res2} {video_res2.text}"
         else:
-            self.message = f"{video_res2} {video_res2.text} "
-            self.validation = False
-        print("video validation", self.validation, self.video_arc_id)
+            print("video validation", self.validation, self.video_arc_id)
 
     def post_transformed_ans(self):
         if not self.dry_run:
+            self.message = None
             # post transformed ans to new organization
-            mc = MigrationJson(
-                self.ans, {"video": {"transcoding": False, "useLastUpdated": True}}
-            )
-            video_res3 = requests.post(
-                arc_endpoints.mc_create_ans_url(self.to_org),
-                headers=self.arc_auth_header_target,
-                json=mc.__dict__,
-                params={"ansId": self.video_arc_id, "ansType": "video"},
-            )
-            print("ans posted to new org's MC", video_res3)
+            try:
+                mc = MigrationJson(
+                    self.ans, {"video": {"transcoding": False, "useLastUpdated": True}}
+                )
+                video_res3 = requests.post(
+                    arc_endpoints.mc_create_ans_url(self.to_org),
+                    headers=self.arc_auth_header_target,
+                    json=mc.__dict__,
+                    params={"ansId": self.video_arc_id, "ansType": "video"},
+                )
+                if not video_res3.ok:
+                    raise arc2arc_exceptions.ArcObjectToMigrationCenterFailed
+
+            except Exception as e:
+                self.message = f"{str(e)} {video_res3.status_code} {video_res3.reason} {video_res3.text}"
+            else:
+                print(f"ans posted to {self.to_org} Migration Center", video_res3)
 
     def doit(self):
         self.fetch_source_ans()
@@ -416,6 +433,8 @@ class Arc2ArcVideo:
             return self.message, None
         else:
             self.post_transformed_ans()
+            if self.message:
+                print(self.message)
         return {"references": self.references.__dict__, "ans": self.ans}
 
 
@@ -424,58 +443,58 @@ if __name__ == "__main__":
     parser.add_argument(
         "--from-org",
         dest="org",
+        help="source organization id value; org for production or sandbox.org for sandbox",
         required=True,
         default="",
-        help="source organization id value; org for production or sandbox.org for sandbox'",
     )
     parser.add_argument(
         "--to-org",
         dest="to_org",
+        help="target organization id value; org for production or sandbox.org for sandbox",
         required=True,
         default="",
-        help="target organization id value; org for production or sandbox.org for sandbox'",
     )
     parser.add_argument(
         "--from-token",
         dest="from_token",
+        help="source organization bearer token; production environment",
         required=True,
         default="",
-        help="source organization bearer token; production environment'",
     )
     parser.add_argument(
         "--to-token",
         dest="to_token",
+        help="target organization bearer token; production environment",
         required=True,
         default="",
-        help="target organization bearer token; production environment'",
     )
     parser.add_argument(
         "--to-website-site",
         dest="to_website",
+        help="target organization's website name",
         required=True,
         default="",
-        help="target organization's website name'",
     )
     parser.add_argument(
         "--to-website-section",
         dest="to_section",
+        help="target organization's website section id value. If none, original source sections are retained in target object.",
         required=False,
         default="",
-        help="target organization's website section id value. If none, original source sections are retained in target object.'",
     )
     parser.add_argument(
         "--video-arc-id",
         dest="video_arc_id",
+        help="arc id value of video to migrate into target org",
         required=True,
         default="",
-        help="arc id value of video to migrate into target org",
     )
     parser.add_argument(
         "--dry-run",
         dest="dry_run",
+        help="A video that exists in the target org will not be processed.  Set this to 1 to process the video enough to see the transformed ANS.  However, the video will not actually post to the target org.",
         required=False,
         default=0,
-        help="A video that exists in the target org will not be processed.  Set this to 1 to process the video enough to see the transformed ANS.  However, the video will not actually post to the target org.",
     )
 
     args = parser.parse_args()

@@ -3,9 +3,11 @@ import pprint
 from dataclasses import dataclass
 from typing import Optional
 
+import arc2arc_exceptions
 import arc_endpoints
 import dist_ref_id
 import jmespath
+import json
 import requests
 
 
@@ -19,6 +21,7 @@ class MigrationJson:
 class DocumentReferences:
     images: Optional[list] = None
     distributor: Optional[dict] = None
+    authors: Optional[list] = None
 
 
 class Arc2SandboxGallery:
@@ -105,20 +108,33 @@ class Arc2SandboxGallery:
             "ingestionMethod"
         ] = f"copied from production {self.from_org} to {self.to_org}"
 
-    def transform_promo_item(self):
+    def other_supporting_references(self):
         """
-        Galleries don't retain reference syntax when fetched from the API, but the reference syntax is necessary to ingest a new gallery object.
-        Reformat the image in `promo_items` as a reference.
+        related content on a gallery is supported in the ANS but not in the Photo Center UI, so is not represented in this script
+            - 04_transform_video_to_sandbox.py version of this method shows transforming related_content
+        script does not create redirects
+            - redirects attached to the Gallery are possible, but they are not represented in the Gallery ANS directly
+            - it is not possible to discover the gallery redirects using a gallery's arc id or gallery canonical url
+            - to find gallery redirects you must query content api `type: redirect` and then run a 2nd query using the
+                url returned from 1st query to determine if it is for a video
+            - see 11_tranform_redirects_all.py
+
         :modifies:
-            self.ans
+            self.references
         """
-        if jmespath.search("promo_items.basic._id", self.ans):
-            old_id = self.ans["promo_items"]["basic"]["_id"]
-            self.ans["promo_items"]["basic"] = {
-                "_id": old_id,
-                "type": "reference",
-                "referent": {"type": "image", "id": old_id},
-            }
+
+        # credits.by saved in guest/local format won't pass validation if version is included and is mismatch with top-level ANS version
+        authors = jmespath.search("credits.by[*].name", self.ans)
+        if authors:
+            for index, c in enumerate(self.ans["credits"]["by"]):
+                try:
+                    self.ans["credits"]["by"][index].pop("version", None)
+                except:
+                    pass
+
+        references_authors = jmespath.search("credits.by[*].referent.id", self.ans)
+        if references_authors:
+            self.references.authors = references_authors
 
     def transform_content_elements(self):
         """
@@ -181,29 +197,62 @@ class Arc2SandboxGallery:
                     orig_dist_id, None
                 )
 
+    def transform_promo_item(self):
+        """
+        Galleries don't retain reference syntax when fetched from the API, but the reference syntax is necessary to ingest a new gallery object.
+        Reformat the image in `promo_items` as a reference.
+        :modifies:
+            self.ans
+        """
+        if jmespath.search("promo_items.basic._id", self.ans):
+            old_id = self.ans["promo_items"]["basic"]["_id"]
+            self.ans["promo_items"]["basic"] = {
+                "_id": old_id,
+                "type": "reference",
+                "referent": {"type": "image", "id": old_id},
+            }
+
     def validate_transform(self):
-        gallery_res2 = requests.post(
-            arc_endpoints.ans_validation_url(self.to_org),
-            headers=self.arc_auth_header_target,
-            json=self.ans,
-        )
-        if gallery_res2.ok:
-            self.validation = True
+        # Validate transformed ANS
+        try:
+            gallery_res2 = requests.post(
+                arc_endpoints.ans_validation_url(self.to_org),
+                headers=self.arc_auth_header_target,
+                json=self.ans,
+            )
+            if gallery_res2.ok:
+                self.validation = True
+            else:
+                self.validation = False
+                self.message = f"{gallery_res2} {gallery_res2.text}"
+
+            # raise custom error only if the error is due to creating a new distributor. should only happen the first time a new distributor is attempted.
+            if gallery_res2.status_code == 400 and jmespath.search("[*].message", json.loads(gallery_res2.text)) == ['should NOT have additional properties', 'should be equal to one of values', 'should be string', 'should match exactly one schema in oneOf']:
+                raise arc2arc_exceptions.MakingNewDistributorFirstTimeException
+
+        except Exception as e:
+            self.message = f"{str(e)} full error: {gallery_res2.text}" if e.__module__ == "arc2arc_exceptions" else f"{gallery_res2} {gallery_res2.text}"
         else:
-            self.validation = False
-            self.message = f"{gallery_res2} {gallery_res2.text}"
-        print("gallery validation", self.validation, self.gallery_arc_id)
+            print("gallery validation", self.validation, self.gallery_arc_id)
 
     def post_transformed_ans(self):
         # post transformed ans to new organization
         mc = MigrationJson(self.ans, {})
-        gallery_res3 = requests.post(
-            arc_endpoints.mc_create_ans_url(self.to_org),
-            headers=self.arc_auth_header_target,
-            json=mc.__dict__,
-            params={"ansId": self.gallery_arc_id, "ansType": "gallery"},
-        )
-        print("ans posted to sandbox MC", gallery_res3)
+        self.message = None
+        try:
+            gallery_res3 = requests.post(
+                arc_endpoints.mc_create_ans_url(self.to_org),
+                headers=self.arc_auth_header_target,
+                json=mc.__dict__,
+                params={"ansId": self.gallery_arc_id, "ansType": "gallery"},
+            )
+            if not gallery_res3.ok:
+                raise arc2arc_exceptions.ArcObjectToMigrationCenterFailed
+
+        except Exception as e:
+            self.message = f"{str(e)} {gallery_res3.status_code} {gallery_res3.reason} {gallery_res3.text}"
+        else:
+            print("ans posted to sandbox Migration Center", gallery_res3)
 
     def document_redirects(self):
         pass
@@ -221,6 +270,8 @@ class Arc2SandboxGallery:
             return self.message, None
         elif not self.dry_run:
             self.post_transformed_ans()
+            if self.message:
+                print(self.message)
         return {"references": self.references.__dict__, "ans": self.ans}
 
 
@@ -229,37 +280,37 @@ if __name__ == "__main__":
     parser.add_argument(
         "--from-org",
         dest="org",
+        help="production organization id. the to-org is automatically the sandbox version of this value.",
         required=True,
         default="",
-        help="production organization id. the to-org is automatically the sandbox version of this value.",
     )
     parser.add_argument(
         "--from-token",
         dest="from_token",
+        help="production environment organization bearer token",
         required=True,
         default="",
-        help="production environment organization bearer token",
     )
     parser.add_argument(
         "--to-token",
         dest="to_token",
+        help="sandbox environment organization bearer token",
         required=True,
         default="",
-        help="sandbox environment organization bearer token",
     )
     parser.add_argument(
         "--gallery-arc-id",
         dest="gallery_arc_id",
+        help="arc id value of gallery to migrate into sandbox environment",
         required=True,
         default="",
-        help="arc id value of gallery to migrate into sandbox environment",
     )
     parser.add_argument(
         "--dry-run",
         dest="dry_run",
+        help="Set this to 1 to test the results of transforming an object. The object will not actually post to the target org.",
         required=False,
         default=0,
-        help="Set this to 1 to test the results of transforming an object. The object will not actually post to the target org.",
     )
     args = parser.parse_args()
 

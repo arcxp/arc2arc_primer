@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from typing import Optional
 
 import arc_endpoints
+import arc2arc_exceptions
 import dist_ref_id
 import jmespath
+import json
 import requests
 
 
@@ -20,7 +22,11 @@ class MigrationJson:
 class DocumentReferences:
     redirects: Optional[list] = None
     distributor: Optional[dict] = None
-
+    images: Optional[list] = None
+    galleries: Optional[list] = None
+    videos: Optional[list] = None
+    authors: Optional[list] = None
+    related_stories: Optional[list] = None
 
 
 class Arc2SandboxStory:
@@ -73,13 +79,14 @@ class Arc2SandboxStory:
         self.dry_run_restriction_msg = "new distributors not created during a dry run"
 
     def fetch_source_ans(self):
-        """ Extract ANS from source organization, the production environment
+        """ Extract ANS from source organization's production environment
         :modifies:
             self.ans
             self.circulation
             self.message
         """
         if self.dry_run:
+            self.references.redirects = ["Story Redirects will not be evaluated during a dry run"]
             print(
                 "THIS IS A TEST RUN. STORY WILL NOT BE CREATED OR UPDATED. NEW DISTRIBUTORS AND RESTRICTIONS WILL NOT BE CREATED."
             )
@@ -172,28 +179,133 @@ class Arc2SandboxStory:
                     orig_dist_id, None
                 )
 
-    def validate_transform(self):
-        story_res4 = requests.post(
-            arc_endpoints.ans_validation_url(self.to_org),
-            headers=self.arc_auth_header_target,
-            json=self.ans,
+    def other_supporting_references(self):
+        """
+        Finds references in ANS that will need to be ingested into target organization.
+        Sets information for return display in self.references.
+        :modifies:
+            self.references
+        """
+        # Filter content_elements, promo_items.basic, related_content for
+        # `referent.type: images` and select out the `$._id` or `$.referent.id` to add to self.references for return display
+        ce_imgs = (
+                jmespath.search(
+                    "content_elements[?referent && referent.type == `image`] | [*].referent.id",
+                    self.ans,
+                )
+                or []
         )
-        if story_res4.ok:
-            self.validation = True
+        pi_imgs = jmespath.search("(promo_items.basic.*)[?type==`image`].id", self.ans) or []
+        rc_img = (
+            jmespath.search(
+                "related_content.basic[?referent && referent.type == `image`] | [*].referent.id",
+                self.ans,
+            )
+            or []
+        )
+        self.references.images = list(set(ce_imgs + pi_imgs + rc_img)) or None
+
+        # Filter content_elements, promo_items.lead_art ,related_content for
+        # `referent.type: gallery` and select out the `$._id` or `$.referent.id` to add to self.references for return display
+        ce_gals = (
+            jmespath.search(
+                "content_elements[?referent && referent.type == `gallery`]._id",
+                self.ans,
+            )
+            or []
+        )
+        pi_gals = (
+            jmespath.search("(promo_items.lead_art.*)[?type==`gallery`].id", self.ans) or []
+        )
+        rc_gals = (
+            jmespath.search(
+                "related_content.basic[?referent && referent.type == `gallery`]._id",
+                self.ans,
+            )
+            or []
+        )
+        self.references.galleries = list(set(ce_gals + pi_gals + rc_gals)) or None
+
+        # Filter related_content for referent.type: story` and select out the `$._id` to add to self.references for return display
+        self.references.related_stories = (
+            jmespath.search(
+                "related_content.basic[?referent && referent.type == `story`]._id",
+                self.ans,
+            )
+            or []
+        )
+
+        # Filter credits.by and select any the `referent.id` to add to self.references for return display
+        references_authors = jmespath.search("credits.by[*].referent.id", self.ans) or []
+        self.references.authors = references_authors
+
+        # credits.by in guest/local format won't pass validation if `.version` property is included, and is
+        #   also mismatched with current top-level `.version` property. Leave credits.by author information, remove  `.version` property.
+        authors = jmespath.search("credits.by[*].name", self.ans)
+        if authors:
+            for index, c in enumerate(self.ans["credits"]["by"]):
+                try:
+                    self.ans["credits"]["by"][index].pop("version", None)
+                except Exception:
+                    pass
+
+        # Build list of video references and add to return display. Video ids do not need to be regenerated.
+        # Filter content_elements, promo_items.lead_art, promo_items.basic, related_content for
+        # `referent.type: video` and select out the `referent._id` to add to the self.references for return display
+        ce_vids = (
+            jmespath.search(
+                "content_elements[?referent && referent.type == `video`]._id", self.ans
+            )
+            or []
+        )
+        pi_vids = jmespath.search("(promo_items.lead_art.*)[?type==`video`].id", self.ans) or []
+        rc_vids = (
+            jmespath.search(
+                "related_content.basic[?referent && referent.type == `video`]._id",
+                self.ans,
+            )
+            or []
+        )
+        self.references.videos = list(set(ce_vids + pi_vids + rc_vids)) or None
+
+    def validate_transform(self):
+        try:
+            story_res4 = requests.post(
+                arc_endpoints.ans_validation_url(self.to_org),
+                headers=self.arc_auth_header_target,
+                json=self.ans,
+            )
+            if story_res4.ok:
+                self.validation = True
+            else:
+                self.validation = False
+                self.message = f"{story_res4} {story_res4.text}"
+
+            # raise custom error only if the error is due to creating a new distributor. should only happen the first time a new distributor is attempted.
+            if story_res4.status_code == 400 and jmespath.search("[*].message", json.loads(story_res4.text)) == ['should NOT have additional properties', 'should be equal to one of values', 'should be string', 'should match exactly one schema in oneOf']:
+                raise arc2arc_exceptions.MakingNewDistributorFirstTimeException
+
+        except Exception as e:
+            self.message = f"{str(e)} full error: {story_res4.text}" if e.__module__ == "arc2arc_exceptions" else f"{story_res4} {story_res4.text}"
         else:
-            self.validation = False
-            self.message = f"{story_res4} {story_res4.text}"
-        print("story validation", self.validation, self.story_arc_id)
+            print("story validation", self.validation, self.story_arc_id)
 
     def post_transformed_ans(self):
         mc = MigrationJson(self.ans, self.circulation, {"story": {"publish": True}})
-        story_res5 = requests.post(
-            arc_endpoints.mc_create_ans_url(self.to_org),
-            headers=self.arc_auth_header_target,
-            json=mc.__dict__,
-            params={"ansId": self.story_arc_id, "ansType": "story"},
-        )
-        print("ans posted to sandbox MC", story_res5)
+        self.message = None
+        try:
+            story_res5 = requests.post(
+                arc_endpoints.mc_create_ans_url(self.to_org),
+                headers=self.arc_auth_header_target,
+                json=mc.__dict__,
+                params={"ansId": self.story_arc_id, "ansType": "story"},
+            )
+            if not story_res5.ok:
+                raise arc2arc_exceptions.ArcObjectToMigrationCenterFailed
+        except Exception as e:
+            self.message = f"{str(e)} {story_res5.status_code} {story_res5.reason} {story_res5.text}"
+        else:
+            print("ans posted to sandbox Migration Center", story_res5)
 
     def document_redirects(self):
         """
@@ -207,7 +319,9 @@ class Arc2SandboxStory:
         )
         if story_res6.ok:
             redirects = story_res6.json()["redirects"]
+            # set information for return display in self.references
             self.references.redirects = redirects
+            # attempt to create redirects in sandbox
             if not self.dry_run:
                 for red_url in redirects:
                     try:
@@ -221,9 +335,12 @@ class Arc2SandboxStory:
                             headers=self.arc_auth_header_target,
                             json={"document_id": self.story_arc_id},
                         )
-                        print("redirect created", story_res7.json())
+                        if not story_res7.ok:
+                            raise arc2arc_exceptions.ArcRedirectAlreadyExistsFailed
                     except Exception as e:
-                        print("redirect not processed", red_url, e)
+                        print("redirect", story_res7.json().get("error_message", ""), str(e))
+                    else:
+                        print("redirect created", story_res7.json())
 
     def doit(self):
         self.fetch_source_ans()
@@ -231,12 +348,16 @@ class Arc2SandboxStory:
             return self.message, None
         self.transform_ans()
         self.transform_distributor()
+        self.other_supporting_references()
         self.validate_transform()
         if not self.validation:
             return self.message, None
         elif not self.dry_run:
             self.post_transformed_ans()
-            self.document_redirects()
+            if not self.message:
+                self.document_redirects()
+            else:
+                print(self.message)
         return {"references": self.references.__dict__, "ans": self.ans, "circulation": self.circulation}
 
 
@@ -245,37 +366,37 @@ if __name__ == "__main__":
     parser.add_argument(
         "--from-org",
         dest="org",
+        help="production organization id. the to-org is automatically set as 'sandbox.org",
         required=True,
         default="",
-        help="production organization id. the to-org is automatically set as 'sandbox.org'",
     )
     parser.add_argument(
         "--from-token",
         dest="from_token",
+        help="production environment organization bearer token",
         required=True,
         default="",
-        help="production environment organization bearer token",
     )
     parser.add_argument(
         "--to-token",
         dest="to_token",
+        help="sandbox environment organization bearer token",
         required=True,
         default="",
-        help="sandbox environment organization bearer token",
     )
     parser.add_argument(
         "--story-arc-id",
         dest="story_arc_id",
+        help="arc id value of story to migrate into sandbox environment",
         required=True,
         default="",
-        help="arc id value of story to migrate into sandbox environment",
     )
     parser.add_argument(
         "--dry-run",
         dest="dry_run",
+        help="Set this to 1 to test the results of transforming an object. The object will not actually post to the target org.",
         required=False,
         default=0,
-        help="Set this to 1 to test the results of transforming an object. The object will not actually post to the target org.",
     )
 
     args = parser.parse_args()
@@ -291,5 +412,6 @@ if __name__ == "__main__":
         target_auth=arc_auth_header_target,
         dry_run=args.dry_run,
     ).doit()
+
     print('\nRESULTS')
     pprint.pp(result)

@@ -5,8 +5,10 @@ from typing import Optional
 
 import arc_endpoints
 import arc_id
+import arc2arc_exceptions
 import dist_ref_id
 import jmespath
+import json
 import requests
 
 
@@ -62,7 +64,7 @@ class Arc2ArcStory:
     Example terminal usage:
     python this_script.py --from-org devtraining --to-org cetest --story-arc_id MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token --to-token cetest prod token --to-website-site cetest --to-website-section /test  --dry-run 1
 
-    :modify:
+    :modifies:
         self.references: {}
         self.ans: {}
         self.circulation: {}
@@ -97,7 +99,6 @@ class Arc2ArcStory:
 
     def fetch_source_ans(self):
         """ Extract ANS from source organization
-
         :modifies:
             self.ans
             self.circulation
@@ -207,6 +208,9 @@ class Arc2ArcStory:
         references
         New ids are used in the rewritten references.
 
+        NOTE: promo_items can support other keys than `.basic` and `.lead_art` but this is not common.
+        If your ANS supports more customized promo_items children, customize the logic to accommodate.
+
         :modifies:
             self.references
             self.ans
@@ -216,7 +220,8 @@ class Arc2ArcStory:
         combined_newids = {}
         header = {self.from_org: self.to_org}
 
-        # Are there image references in the ans?  build list.
+        # Filter content_elements, promo_items.basic, related_content for
+        # `referent.type: images` and select out the `$._id` or `$.referent.id` to add to self.references for return display
         ce_imgs = (
             jmespath.search(
                 "content_elements[?referent && referent.type == `image`] | [*].referent.id",
@@ -234,7 +239,8 @@ class Arc2ArcStory:
         )
         references_images = list(set(ce_imgs + pi_imgs + rc_img)) or None
 
-        # Are there gallery references in the ans?  build list.
+        # Filter content_elements, promo_items.lead_art ,related_content for
+        # `referent.type: gallery` and select out the `$._id` or `$.referent.id` to add to self.references for return display
         ce_gals = (
             jmespath.search(
                 "content_elements[?referent && referent.type == `gallery`]._id",
@@ -254,8 +260,9 @@ class Arc2ArcStory:
         )
         references_galleries = list(set(ce_gals + pi_gals + rc_gals)) or None
 
-        # generate new arc ids, since this client is not on the arc3 cluster where you can have
-        # duplicate arc ids for photos among different orgs in the same region
+        # Generate new arc ids for Photo Center objects that are moving to a new organization.
+        #   There are some organizations that are rare exceptions to this restriction/
+        # NOTE: Story and Video objects do not need new arc ids when moving to a new organization.
         if references_images:
             for img in references_images:
                 references_images_newids.update(
@@ -287,8 +294,7 @@ class Arc2ArcStory:
                         references_images_newids.update({old_id: regen_id})
                         self.references.images.update(references_images_newids)
 
-        # replace image arc ids used in story references with regenerated values:
-        # in the content elements, promo items and related contents
+        # replace Photo Center arc ids in the ANS references with regenerated values: in content elements, promo items, related contents
         combined_newids.update(references_images_newids)
         combined_newids.update(references_galleries_newids)
         for newid in combined_newids:
@@ -321,24 +327,24 @@ class Arc2ArcStory:
         Rewrites the circulation object for ingestion into the target organization.
         :modifies:
             self.circulation
+            self.references
+            self.from_website
         """
-        # add original circulation info to the references structure
+        # filter for original circulation section and website values
         source_circulation = jmespath.search(
             "[*].website_sections[*].{section: referent.id, website: referent.website}[]",
             self.circulation,
             jmespath.Options(dict_cls=dict),
         )
-        self.references.circulation = {
-            self.from_org: source_circulation
-        }
+        # set source circulation information for return display to see the changes between source and target circulation after script completes
+        self.references.circulation = {self.from_org: source_circulation}
+        # self.from_website is being set for use in the method that re-creates the story redirects in the target org
         self.from_website = source_circulation[0]["website"]
 
-        # Either reset the first circulated section to the section value passed in the script args, and drop others,
-        # or if script args section value is none, leave original sections values as is and only reset the website value
+        # Either reset the first circulated section to the section value passed in the script args and drop other sections if any,
+        # or if script args section value is `none`, leave original sections values as is and only reset the target's website value
         for circ in self.circulation:
-            circ["website_id"] = circ["website_primary_section"]["referent"][
-                "website"
-            ] = self.target_website
+            circ["website_id"] = circ["website_primary_section"]["referent"]["website"] = self.target_website
             for circ2 in circ["website_sections"]:
                 circ2["referent"]["website"] = self.target_website
                 if self.target_section:
@@ -347,42 +353,41 @@ class Arc2ArcStory:
                 circ["website_primary_section"]["referent"]["id"] = self.target_section
                 break
 
-        # add updated circulation to the references structure
+        # filter the target circulation for only the section and website data; add to self.references for return display
         target_circulation = jmespath.search(
             "[*].website_sections[*].{section: referent.id, website: referent.website}[]",
             self.circulation,
             jmespath.Options(dict_cls=dict),
         )
-        self.references.circulation.update({
-            self.to_org: target_circulation
-        })
+        # set information for return display to make clear what changes occurred between source and target circulation
+        self.references.circulation.update({self.to_org: target_circulation})
 
     def other_supporting_references(self):
         """
         Finds references in ANS that will need to be ingested into target organization.
-        Does some reformatting of references as necessary.
+        Sets information for return display in self.references.
+        Does some reformatting of ANS references as necessary to ensure Validation of the ANS prior to ingestion.
 
         :modifies:
             self.references
             self.ans
         """
-        # Are there supporting story references in the ans?  build list.
-        # related content story ids do not need to be regenerated.
-        references_stories = (
+        # Are there supporting story references in the ans? Build list of story references and add to self.references return display.
+        # Story ids do not need to be regenerated.
+        self.references.related_stories = (
             jmespath.search(
                 "related_content.basic[?referent && referent.type == `story`]._id",
                 self.ans,
             )
             or []
         )
-        self.references.related_stories = references_stories
 
-        # Are there author references in the ans? build list.
+        # Are there author references in the ans? Build list of author references and add to self.references for return display.
         # Author ids do not need to be regenerated.
-        references_authors = jmespath.search("credits.by[*].referent.id", self.ans) or []
-        self.references.authors = references_authors
+        self.references.authors = jmespath.search("credits.by[*].referent.id", self.ans) or []
 
-        # credits.by saved in guest/local format won't pass validation if version is included and is mismatch with story version
+        # credits.by in guest/local format won't pass validation if `.version` property is included, and is
+        #   also mismatched with current top-level `.version` property. Leave credits.by author information, remove  `.version` property.
         authors = jmespath.search("credits.by[*].name", self.ans)
         if authors:
             for index, c in enumerate(self.ans["credits"]["by"]):
@@ -391,8 +396,9 @@ class Arc2ArcStory:
                 except Exception:
                     pass
 
-        # Are there video references in the ans? build list.
-        # Video ids do not need to be regenerated.
+        # Build list of video references and add to return display. Video ids do not need to be regenerated.
+        # Filter content_elements, promo_items.lead_art, promo_items.basic, related_content for
+        # `referent.type: video` and select out the `referent._id` to add to the self.references for return display
         ce_vids = (
             jmespath.search(
                 "content_elements[?referent && referent.type == `video`]._id", self.ans
@@ -407,31 +413,50 @@ class Arc2ArcStory:
             )
             or []
         )
-        references_videos = list(set(ce_vids + pi_vids + rc_vids)) or None
-        self.references.videos = references_videos
+        self.references.videos = list(set(ce_vids + pi_vids + rc_vids)) or None
 
     def validate_transform(self):
-        story_res4 = requests.post(
-            arc_endpoints.ans_validation_url(self.to_org),
-            headers=self.arc_auth_header_target,
-            json=self.ans,
-        )
-        if story_res4.ok:
-            self.validation = True
+        # Validate transformed ANS
+        try:
+            story_res4 = requests.post(
+                arc_endpoints.ans_validation_url(self.to_org),
+                headers=self.arc_auth_header_target,
+                json=self.ans,
+            )
+            if story_res4.ok:
+                self.validation = True
+            else:
+                self.validation = False
+                self.message = f"{story_res4} {story_res4.text}"
+
+            # raise custom error only if the error is due to creating a new distributor. should only happen the first time a new distributor is attempted.
+            if story_res4.status_code == 400 and jmespath.search("[*].message", json.loads(story_res4.text)) == ['should NOT have additional properties', 'should be equal to one of values', 'should be string', 'should match exactly one schema in oneOf']:
+                raise arc2arc_exceptions.MakingNewDistributorFirstTimeException
+
+        except Exception as e:
+            self.message = f"{str(e)} full error: {story_res4.text}" if e.__module__ == "arc2arc_exceptions" else f"{story_res4} {story_res4.text}"
         else:
-            self.validation = False
-            self.message = f"{story_res4} {story_res4.text}"
-        print("story validation", self.validation, self.story_arc_id)
+            print("story validation", self.validation, self.story_arc_id)
 
     def post_transformed_ans(self):
+        # post transformed ans to new organization
         mc = MigrationJson(self.ans, self.circulation, {"story": {"publish": True}})
-        story_res5 = requests.post(
-            arc_endpoints.mc_create_ans_url(self.to_org),
-            headers=self.arc_auth_header_target,
-            json=mc.__dict__,
-            params={"ansId": self.story_arc_id, "ansType": "story"},
-        )
-        print("ans posted to new org's MC", story_res5)
+        self.message = None
+        try:
+            story_res5 = requests.post(
+                arc_endpoints.mc_create_ans_url(self.to_org),
+                headers=self.arc_auth_header_target,
+                json=mc.__dict__,
+                params={"ansId": self.story_arc_id, "ansType": "story"},
+            )
+
+            if not story_res5.ok:
+                raise arc2arc_exceptions.ArcObjectToMigrationCenterFailed
+
+        except Exception as e:
+            self.message = f"{str(e)} {story_res5.status_code} {story_res5.reason} {story_res5.text}"
+        else:
+            print(f"ans posted to {self.to_org} Migration Center", story_res5)
 
     def document_redirects(self):
         """
@@ -445,7 +470,9 @@ class Arc2ArcStory:
         )
         if story_res6.ok:
             redirects = story_res6.json()["redirects"]
+            # set information for return display in self.references
             self.references.redirects = redirects
+            # attempt to create redirects in target organization
             if not self.dry_run:
                 for red_url in redirects:
                     try:
@@ -459,9 +486,12 @@ class Arc2ArcStory:
                             headers=self.arc_auth_header_target,
                             json={"document_id": self.story_arc_id},
                         )
-                        print("redirect created", story_res7.json())
+                        if not story_res7.ok:
+                            raise arc2arc_exceptions.ArcRedirectAlreadyExistsFailed
                     except Exception as e:
-                        print("redirect not processed", red_url, e)
+                        print("redirect", story_res7.json().get("error_message", ""), str(e))
+                    else:
+                        print("redirect created", story_res7.json())
 
     def doit(self):
         self.fetch_source_ans()
@@ -477,7 +507,10 @@ class Arc2ArcStory:
             return self.message, None
         elif not self.dry_run:
             self.post_transformed_ans()
-            self.document_redirects()
+            if not self.message:
+                self.document_redirects()
+            else:
+                print(self.message)
         return {"references": self.references.__dict__, "ans": self.ans, "circulation": self.circulation}
 
 
@@ -486,58 +519,58 @@ if __name__ == "__main__":
     parser.add_argument(
         "--from-org",
         dest="org",
+        help="source organization id value; org for production or sandbox.org for sandbox",
         required=True,
         default="",
-        help="source organization id value; org for production or sandbox.org for sandbox'",
     )
     parser.add_argument(
         "--to-org",
         dest="to_org",
+        help="target organization id value; org for production or sandbox.org for sandbox",
         required=True,
         default="",
-        help="target organization id value; org for production or sandbox.org for sandbox'",
     )
     parser.add_argument(
         "--from-token",
         dest="from_token",
+        help="source organization bearer token; production environment",
         required=True,
         default="",
-        help="source organization bearer token; production environment'",
     )
     parser.add_argument(
         "--to-token",
         dest="to_token",
+        help="target organization bearer token; production environment",
         required=True,
         default="",
-        help="target organization bearer token; production environment'",
     )
     parser.add_argument(
         "--to-website-site",
         dest="to_website",
+        help="target organization's website name",
         required=True,
         default="",
-        help="target organization's website name'",
     )
     parser.add_argument(
         "--to-website-section",
         dest="to_section",
+        help="target organization's website section id value.  If none, source sections are retained.",
         required=False,
         default="",
-        help="target organization's website section id value.  If none, source sections are retained.'",
     )
     parser.add_argument(
         "--story-arc-id",
         dest="story_arc_id",
+        help="arc id value of story to migrate into target org",
         required=True,
         default="",
-        help="arc id value of story to migrate into target org",
     )
     parser.add_argument(
         "--dry-run",
         dest="dry_run",
+        help="Set this to 1 to test the results of transforming an object. The object will not actually post to the target org.",
         required=False,
         default=0,
-        help="Set this to 1 to test the results of transforming an object. The object will not actually post to the target org.",
     )
     args = parser.parse_args()
 
