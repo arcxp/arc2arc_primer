@@ -41,6 +41,8 @@ class Arc2SandboxVideo:
     - Script will attempt to create sandbox Distributors if necessary.
     - Geographic Restrictions in the Video ANS will be written to use the sandbox restriction ids if they have been created in sandbox.
     - Script will attempt to create sandbox Geographic Restrictions if necessary.
+    - Script does not collect an argument for a target additional_properties.videoCategory and it expects this to be
+    set up the same way already in Video Center and be the same between production and sandbox environments
     - Script will not create Video redirects in sandbox.
     There's no way to get a list of redirects attached to a video, without already knowing the specific redirect url.
     Instead video redirects will have to be recreated using a script where the capi is queried specifically for redirect objects.
@@ -122,6 +124,7 @@ class Arc2SandboxVideo:
         self.ans.get("owner", {}).update({"id": self.to_org})
         self.ans["version"] = "0.8.0"
         self.ans.pop("embed_html", None)
+        self.ans.pop("subtype", None) # if left in, the Video Center API will error with "Could not resolve subsection for video"
         self.ans.get("source", {}).pop("edit_url", None)
         self.ans["additional_properties"][
             "ingestionMethod"

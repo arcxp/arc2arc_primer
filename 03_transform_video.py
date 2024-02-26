@@ -59,7 +59,7 @@ class Arc2ArcVideo:
     that might be necessary to bring the referenced objects into the target organization.
 
     Example terminal usage:
-    python this_script.py --from-org devtraining --to-org cetest --video-arc_id MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token  --to-token cetest prod token --to-website-site cetest --to-website-section /test  --dry-run 1
+    python this_script.py --from-org devtraining --to-org cetest --video-arc_id MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token  --to-token cetest prod token --to-website-site cetest --to-website-section /test --to-video-category sample  --dry-run 1
 
     :modifies:
         self.references: {}
@@ -75,6 +75,7 @@ class Arc2ArcVideo:
         target_auth,
         target_website,
         target_section,
+        target_video_category,
         dry_run,
     ):
         self.arc_auth_header_source = source_auth
@@ -85,6 +86,7 @@ class Arc2ArcVideo:
         self.dry_run = bool(int(dry_run))
         self.target_website = target_website
         self.target_section = target_section
+        self.target_video_category = target_video_category
         self.ans = {}
         self.message = ""
         self.validation = None
@@ -139,6 +141,11 @@ class Arc2ArcVideo:
         sets properties with values appropriate to target org
         sets version to specific ANS version.  Only 0.8.0 ANS version is correct for videos
         sets an additional_properties value to track that the object in the target org originated from the source org
+        sets additional_properties.videoCategory value if passed to script
+            if the additional_properties.videoCategory from source ANS does not exist in target org,
+            and is passed through to the new ANS for the target org, the ANS will pass validation in the primer script,
+            send to migration center successfully, but will ultimately fail to be created when migration center
+            sends the ANS to the Video Center api. This is why you can send self.target_video_category as a script argument
 
         :modifies:
             self.ans
@@ -147,7 +154,10 @@ class Arc2ArcVideo:
         self.ans.get("owner", {}).update({"id": self.to_org})
         self.ans["version"] = "0.8.0"
         self.ans.pop("embed_html", None)
+        self.ans.pop("subtype", None) # if left in, the Video Center API will error with "Could not resolve subsection for video"
         self.ans.get("source", {}).pop("edit_url", None)
+        if self.target_video_category:
+            self.ans["additional_properties"]["videoCategory"] = self.target_video_category
         self.ans["additional_properties"][
             "ingestionMethod"
         ] = f"moved orgs from {self.from_org} to {self.to_org}"
@@ -483,6 +493,13 @@ if __name__ == "__main__":
         default="",
     )
     parser.add_argument(
+        "--to-video-category",
+        dest="to_video_category",
+        help="video category/type value to replace in target's `ans.additional_properties.videoCategory`",
+        required=False,
+        default="",
+    )
+    parser.add_argument(
         "--video-arc-id",
         dest="video_arc_id",
         help="arc id value of video to migrate into target org",
@@ -510,6 +527,7 @@ if __name__ == "__main__":
         target_auth=arc_auth_header_target,
         target_website=args.to_website,
         target_section=args.to_section,
+        target_video_category=args.to_video_category,
         dry_run=args.dry_run,
     ).doit()
     print('\nRESULTS')
