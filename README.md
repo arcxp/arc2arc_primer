@@ -4,6 +4,8 @@ Scripts demonstrating what ANS changes to make when transforming ANS of various 
 
 Setup
 ==================
+Requires python version 3.8.6 or greater
+
 Create a virtual environment, activate it and install the script requirements.
 
 ``$ pip3 install -r requirements.txt``

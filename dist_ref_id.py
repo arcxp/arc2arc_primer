@@ -1,7 +1,6 @@
 import arc_endpoints
 import jmespath
 import requests
-from jmespath import search
 
 
 def get_distributor_url(org, dist_id=None) -> str:
@@ -72,7 +71,6 @@ def create_target_distributor_restrictions(
 
                     # prepare restriction data for creation of new one in the target organization
                     for restr in transformed_ans["restrictions"]:
-                        old_restr_id = restr["id"]
                         restr.pop("id", None)
                         restr.pop("createdBy", None)
                         restr.pop("createdAt", None)
