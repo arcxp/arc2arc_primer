@@ -14,6 +14,10 @@ You will need access to one Arc organization id and bearer token to run scripts 
 
 You will need access to two Arc organization ids and bearer tokens for each to run scripts that copy objects from one Arc organization to another Arc organization.
 
+You will need Migration Center active in the source organization.
+
+The primer scripts have been written to work in the most generic implementation of what is possible in Arc XP. You will be able to identify if there are areas that don't work for your situation as presented, analyze the causes, and change your forked version as needed.
+
 ## Pycharm Configuration and Debugging
 
 Using the PyCharm IDE you can run this code locally and will have the ability to inspect its methods and processes.
