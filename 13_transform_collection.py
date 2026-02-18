@@ -24,7 +24,7 @@ class Arc2ArcCollection:
     The returned catalog of references self.references can be used to inform additional operations to bring the referenced objects into the target organization.
 
     Example terminal usage:
-    python this_script.py --from-org devtraining --to-org cetest --collection-arcid MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token --to-token cetest prod token --to-website-site cetest --to-website-section /test  --dry-run 1
+    python this_script.py --from-org devtraining --to-org cetest --collection-arc-id MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token --to-token cetest prod token --to-website-site cetest --to-website-section /test  --dry-run 1
 
     :modifies:
         self.references: {}

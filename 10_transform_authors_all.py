@@ -28,7 +28,7 @@ class Arc2ArcAuthor:
 
         author_exists = requests.get(
             arc_endpoints.get_author_url(self.to_org),
-            headers=arc_auth_header_target,
+            headers=self.arc_auth_header_target,
             params={"_id": self.author_id},
         )
         if author_exists.ok:
@@ -37,7 +37,7 @@ class Arc2ArcAuthor:
 
         author_res = requests.get(
             arc_endpoints.get_author_url(self.from_org),
-            headers=arc_auth_header_source,
+            headers=self.arc_auth_header_source,
             params={"_id": self.author_id},
         )
         # This will copy the exact data from the original org into the new org.
@@ -47,7 +47,7 @@ class Arc2ArcAuthor:
             if author_res.ok:
                 author_res2 = requests.post(
                     arc_endpoints.get_author_url(self.to_org, "v2"),
-                    headers=arc_auth_header_target,
+                    headers=self.arc_auth_header_target,
                     json=author_res.json(),
                 )
                 self.message = (
@@ -78,7 +78,7 @@ class ProcessArc2ArcAuthors:
     def doit(self):
         authors_req = requests.get(
             arc_endpoints.get_all_authors_url(self.from_org),
-            headers=arc_auth_header_source,
+            headers=self.arc_auth_header_source,
         )
         authors = authors_req.json()["q_results"]
         for index, a in enumerate(authors):
@@ -86,11 +86,11 @@ class ProcessArc2ArcAuthors:
                 break
             result = Arc2ArcAuthor(
                 author_id=a["_id"],
-                from_org=args.org,
-                to_org=args.to_org,
-                source_auth=arc_auth_header_source,
-                target_auth=arc_auth_header_target,
-                dry_run=args.dry_run,
+                from_org=self.from_org,
+                to_org=self.to_org,
+                source_auth=self.arc_auth_header_source,
+                target_auth=self.arc_auth_header_target,
+                dry_run=self.dry_run,
             ).doit()
             print(result)
 

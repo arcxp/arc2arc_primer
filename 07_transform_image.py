@@ -5,6 +5,7 @@ from typing import Optional
 
 import arc_endpoints
 import arc2arc_exceptions
+import arc_constants
 import arc_id
 import dist_ref_id
 import jmespath
@@ -44,7 +45,7 @@ class Arc2ArcImage:
     that might be necessary to bring the referenced objects into the target organization.
 
     Example terminal usage:
-    python this_script.py --from-org devtraining --to-org cetest --image-arc_id MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token --to-token cetest prod token  --dry-run 1
+    python this_script.py --from-org devtraining --to-org cetest --image-arc-id MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token --to-token cetest prod token  --dry-run 1
 
     :return:
         self.references: {}
@@ -102,7 +103,7 @@ class Arc2ArcImage:
         """
         self.ans.get("owner", {}).update({"id": self.to_org})
         self.ans["_id"] = self.regen_image_arc_id
-        self.ans["version"] = "0.10.9"
+        self.ans["version"] = arc_constants.ANS_VERSION_STANDARD
         self.ans["additional_properties"].pop("version", None)
         self.ans["additional_properties"].pop("galleries", None)
         self.ans["additional_properties"][

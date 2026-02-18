@@ -6,6 +6,7 @@ from typing import Optional
 import arc2arc_exceptions
 import arc_endpoints
 import arc_id
+import arc_constants
 import dist_ref_id
 import jmespath
 import json
@@ -52,7 +53,7 @@ class Arc2ArcGallery:
     that might be necessary to bring the referenced objects into the target organization.
 
     Example terminal usage:
-    python this_script.py --from-org devtraining --to-org cetest --gallery-arc_id MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token --to-token cetest prod token --to-website-site cetest --to-website-section /test  --dry-run 1
+    python this_script.py --from-org devtraining --to-org cetest --gallery-arc-id MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token --to-token cetest prod token --to-website-site cetest --to-website-section /test  --dry-run 1
 
     :modifies:
         self.references: {}
@@ -151,7 +152,7 @@ class Arc2ArcGallery:
         """
         self.ans.get("owner", {}).update({"id": self.to_org})
         self.ans["_id"] = self.regen_gallery_arc_id
-        self.ans["version"] = "0.10.9"
+        self.ans["version"] = arc_constants.ANS_VERSION_STANDARD
         self.ans["additional_properties"].pop("version", None)
         self.ans["additional_properties"][
             "ingestionMethod"

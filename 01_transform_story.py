@@ -6,6 +6,7 @@ from typing import Optional
 import arc_endpoints
 import arc_id
 import arc2arc_exceptions
+import arc_constants
 import dist_ref_id
 import jmespath
 import json
@@ -62,7 +63,7 @@ class Arc2ArcStory:
     that might be necessary to bring the referenced objects into the target organization.
 
     Example terminal usage:
-    python this_script.py --from-org devtraining --to-org cetest --story-arc_id MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token --to-token cetest prod token --to-website-site cetest --to-website-section /test  --dry-run 1
+    python this_script.py --from-org devtraining --to-org cetest --story-arc-id MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token --to-token cetest prod token --to-website-site cetest --to-website-section /test  --dry-run 1
 
     :modifies:
         self.references: {}
@@ -129,7 +130,7 @@ class Arc2ArcStory:
                     arc_endpoints.draft_get_circulations_url(
                         self.from_org, self.story_arc_id
                     ),
-                    headers=arc_auth_header_source,
+                    headers=self.arc_auth_header_source,
                 )
                 if story_res3.ok:
                     self.circulation = jmespath.search("circulations", story_res3.json())
@@ -151,7 +152,7 @@ class Arc2ArcStory:
             self.ans
         """
         self.ans["_id"] = self.story_arc_id
-        self.ans["version"] = "0.10.9"
+        self.ans["version"] = arc_constants.ANS_VERSION_STANDARD
         self.ans.get("owner", {}).update({"id": self.to_org})
         self.ans.pop("revision", None)
         self.ans["additional_properties"][

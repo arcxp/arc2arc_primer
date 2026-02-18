@@ -5,6 +5,7 @@ from typing import Optional
 
 import arc_endpoints
 import arc2arc_exceptions
+import arc_constants
 import dist_ref_id
 import jmespath
 import json
@@ -59,7 +60,7 @@ class Arc2ArcVideo:
     that might be necessary to bring the referenced objects into the target organization.
 
     Example terminal usage:
-    python this_script.py --from-org devtraining --to-org cetest --video-arc_id MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token  --to-token cetest prod token --to-website-site cetest --to-website-section /test --to-video-category sample  --dry-run 1
+    python this_script.py --from-org devtraining --to-org cetest --video-arc-id MBDJUMH35VA4VKRW2Y6S2IR44A --from-token devtraining prod token  --to-token cetest prod token --to-website-site cetest --to-website-section /test --to-video-category sample  --dry-run 1
 
     :modifies:
         self.references: {}
@@ -152,7 +153,7 @@ class Arc2ArcVideo:
         """
         self.ans["_id"] = self.video_arc_id
         self.ans.get("owner", {}).update({"id": self.to_org})
-        self.ans["version"] = "0.8.0"
+        self.ans["version"] = arc_constants.ANS_VERSION_VIDEO
         self.ans.pop("embed_html", None)
         self.ans.pop("subtype", None) # if left in, the Video Center API will error with "Could not resolve subsection for video"
         self.ans.get("source", {}).pop("edit_url", None)
@@ -276,7 +277,7 @@ class Arc2ArcVideo:
                 "basic": {
                     "type": "image",
                     "url": self.ans["promo_image"]["url"],
-                    "version": "0.8.0",
+                    "version": arc_constants.ANS_VERSION_VIDEO,
                 }
             }
             self.ans.pop("promo_image", None)
@@ -387,7 +388,7 @@ class Arc2ArcVideo:
         # Validate transformed ANS
         try:
             video_res2 = requests.post(
-                arc_endpoints.ans_validation_url(self.from_org, "0.8.0"),
+                arc_endpoints.ans_validation_url(self.from_org, arc_constants.ANS_VERSION_VIDEO),
                 headers=self.arc_auth_header_source,
                 json=self.ans,
             )

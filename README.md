@@ -72,7 +72,7 @@ Each script works by passing in a series of script parameters. Each script will 
 - a number of test iterations to run before exiting out of a script that operates on more than one piece of content
 
 For example:
-``$ PYTHONPATH=.  python arc2arc_primer/01_transform_story.py --from-org devtraining --to-org cetest --story-arcid MBDJUMH35VA4VKRW2Y6S2IR44A --from-token <token> --to-token <token> --to-website-site cetest --to-website-section /test  --dry-run 1``
+``$ PYTHONPATH=.  python arc2arc_primer/01_transform_story.py --from-org devtraining --to-org cetest --story-arc-id MBDJUMH35VA4VKRW2Y6S2IR44A --from-token <token> --to-token <token> --to-website-site cetest --to-website-section /test  --dry-run 1``
 
 -----------
 Scripts

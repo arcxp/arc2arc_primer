@@ -21,7 +21,10 @@ def generate_arc_id(*args, **kwargs):
     For example, if Arc IDs are to be based off of an integer value, if a
     string representation of that value is used, a different ID will result.
     Fronting this function will allow control over the inputs by implementing
-    validation, specific to the client's use case."""
+    validation, specific to the client's use case.
+
+    usage: arc_id.generate_arc_id({original_value}, {arc_org_id})
+    """
 
     uuid_object = uuid.UUID(
         bytes=hashlib.blake2b(

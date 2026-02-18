@@ -54,7 +54,10 @@ def get_video_url(org, env) -> str:
     )
 
 
-def ans_validation_url(org, version="0.10.9") -> str:
+def ans_validation_url(org, version=None) -> str:
+    if version is None:
+        import arc_constants
+        version = arc_constants.ANS_VERSION_STANDARD
     return f"https://api.{org}.arcpublishing.com/ans/validate/{version}"
 
 
