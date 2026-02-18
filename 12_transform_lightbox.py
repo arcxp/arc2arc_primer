@@ -124,6 +124,14 @@ class Arc2ArcLightbox:
                 self.message = f"{lightbox_res2} {self.from_org} {self.lightbox_id} {lightbox_res2.text}"
 
     def doit(self):
+        """Execute the complete lightbox transformation workflow.
+        
+        Orchestrates the ETL process: fetch, transform, and post lightbox.
+        Returns early if fetch fails or no photos found.
+        
+        Returns:
+            Dictionary containing references if successful, error message string if error occurs
+        """
         self.fetch_source_lightbox()
         if self.message:
             return self.message

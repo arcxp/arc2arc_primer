@@ -67,6 +67,12 @@ class Arc2ArcRedirects:
         }
 
     def doit(self):
+        """Process all redirects from source org and recreate them in target org.
+        
+        Queries all redirects from source org, determines redirect type (story/video/gallery),
+        and attempts to recreate each redirect in the target org. Supports recursive pagination
+        and test_run limit for processing.
+        """
         all_org_redirects = self.query_redirects()
         redirects = (
             jmespath.search(
@@ -130,6 +136,14 @@ class Arc2ArcRedirects:
             self.doit()
 
     def query_redirects(self):
+        """Query redirects from source org using Content API scan endpoint.
+        
+        Uses pagination (scrollId or from parameter) to retrieve all redirects.
+        Updates internal pagination state for recursive calls.
+        
+        Returns:
+            Dictionary containing redirect content_elements and pagination info
+        """
         print(self.searchFrom, self.scrollId)
         self.params["from"] = self.searchFrom
         self.params["scrollId"] = self.scrollId

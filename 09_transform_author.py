@@ -31,6 +31,14 @@ class Arc2ArcAuthor:
         self.message = ""
 
     def doit(self):
+        """Transform and copy a single author from source org to target org.
+        
+        Checks if author already exists in target org. If not, copies the author data.
+        Note: Author photos are not moved automatically and must be updated manually in the UI.
+        
+        Returns:
+            Tuple of (message, ans dict) if successful, (message, None) if error or already exists
+        """
         if self.dry_run:
             print("THIS IS A TEST RUN. AUTHOR WILL NOT BE CREATED OR UPDATED.")
 

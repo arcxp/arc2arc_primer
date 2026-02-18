@@ -67,6 +67,11 @@ class Arc2ArcAuthor:
 
 
 class ProcessArc2ArcAuthors:
+    """Process and transform all authors from source organization to target organization.
+    
+    Iterates through all authors in the source org and attempts to copy each one
+    to the target org. Supports test_run parameter to limit the number of authors processed.
+    """
     def __init__(self, from_org, to_org, source_auth, target_auth, dry_run, test_run):
         self.dry_run = bool(int(dry_run))
         self.test_run = test_run
@@ -76,6 +81,11 @@ class ProcessArc2ArcAuthors:
         self.to_org = to_org
 
     def doit(self):
+        """Process all authors from source org to target org.
+        
+        Fetches all authors from source org and processes each one through Arc2ArcAuthor.
+        Stops processing after test_run iterations if test_run is set.
+        """
         authors_req = requests.get(
             arc_endpoints.get_all_authors_url(self.from_org),
             headers=self.arc_auth_header_source,

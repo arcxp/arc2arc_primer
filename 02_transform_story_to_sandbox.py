@@ -14,6 +14,13 @@ import requests
 
 @dataclass
 class MigrationJson:
+    """Data class for Migration Center JSON payload.
+    
+    Attributes:
+        ANS: Transformed ANS dictionary
+        circulations: List of circulation objects
+        arcAdditionalProperties: Additional properties for Migration Center (e.g., publish settings)
+    """
     ANS: dict
     circulations: list
     arcAdditionalProperties: dict
@@ -21,6 +28,17 @@ class MigrationJson:
 
 @dataclass
 class DocumentReferences:
+    """Data class for cataloging references found in transformed content.
+    
+    Attributes:
+        redirects: List of redirect URLs associated with the content
+        distributor: Dictionary mapping source distributor IDs to target distributor IDs
+        images: List of image IDs referenced in the content
+        galleries: List of gallery IDs referenced in the content
+        videos: List of video IDs referenced in the content
+        authors: List of author IDs referenced in the content
+        related_stories: List of related story IDs
+    """
     redirects: Optional[list] = None
     distributor: Optional[dict] = None
     images: Optional[list] = None
@@ -270,6 +288,16 @@ class Arc2SandboxStory:
         self.references.videos = list(set(ce_vids + pi_vids + rc_vids)) or None
 
     def validate_transform(self):
+        """Validate the transformed ANS against Arc's validation endpoint.
+        
+        Sets self.validation to True if validation passes, False otherwise.
+        Raises MakingNewDistributorFirstTimeException if validation fails due to
+        creating a new distributor (expected on first attempt).
+        
+        :modifies:
+            self.validation
+            self.message
+        """
         try:
             story_res4 = requests.post(
                 arc_endpoints.ans_validation_url(self.to_org),
@@ -292,6 +320,14 @@ class Arc2SandboxStory:
             print("story validation", self.validation, self.story_arc_id)
 
     def post_transformed_ans(self):
+        """Post transformed ANS to target organization via Migration Center.
+        
+        Creates a MigrationJson payload and posts it to the Migration Center endpoint.
+        Sets self.message if posting fails.
+        
+        :modifies:
+            self.message
+        """
         mc = MigrationJson(self.ans, self.circulation, {"story": {"publish": True}})
         self.message = None
         try:
@@ -344,6 +380,15 @@ class Arc2SandboxStory:
                         print("redirect created", story_res7.json())
 
     def doit(self):
+        """Execute the complete transformation workflow.
+        
+        Orchestrates the ETL process: fetch, transform, validate, and post.
+        Returns early if fetch fails or validation fails.
+        
+        Returns:
+            Dictionary containing references, ans, and circulation if successful.
+            Tuple of (message, None) if an error occurs.
+        """
         self.fetch_source_ans()
         if not self.ans and not self.circulation:
             return self.message, None

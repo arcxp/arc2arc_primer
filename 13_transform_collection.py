@@ -110,6 +110,14 @@ class Arc2ArcCollection:
             print(f"collection posted to {self.to_org} org", collection_res2)
 
     def doit(self):
+        """Execute the complete collection transformation workflow.
+        
+        Orchestrates the ETL process: fetch, transform, and post collection.
+        Returns early if fetch fails.
+        
+        Returns:
+            Dictionary containing references if successful, error message string if error occurs
+        """
         self.fetch_source_collection()
         if self.message:
             return self.message

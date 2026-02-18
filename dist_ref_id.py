@@ -4,12 +4,30 @@ import requests
 
 
 def get_distributor_url(org, dist_id=None) -> str:
+    """Generate URL for distributor endpoint (single distributor or list).
+    
+    Args:
+        org: Arc organization identifier
+        dist_id: Optional distributor ID. If provided, returns URL for specific distributor.
+                 If None, returns URL for list of all distributors.
+        
+    Returns:
+        URL string for the distributor endpoint
+    """
     if dist_id:
         return f"https://api.{org}.arcpublishing.com/settings/v1/distributor/{dist_id}"
     return f"https://api.{org}.arcpublishing.com/settings/v1/distributor/"
 
 
 def find_reference_id(ans):
+    """Extract distributor reference ID from ANS.
+    
+    Args:
+        ans: ANS dictionary to search for distributor reference
+        
+    Returns:
+        Distributor reference ID string if found, None otherwise
+    """
     # Is there a distributor in the ans?
     try:
         references_distributor = jmespath.search("distributor.reference_id", ans) or ""
@@ -21,6 +39,21 @@ def find_reference_id(ans):
 def rewrite_reference_id(
     org, to_org, source_dist_id, arc_auth_header_source, arc_auth_header_target
 ) -> dict:
+    """Find matching distributor in target org by name and return mapping.
+    
+    Looks up the source distributor by ID, finds a distributor with the same name
+    in the target org, and returns a mapping of source to target distributor IDs.
+    
+    Args:
+        org: Source Arc organization identifier
+        to_org: Target Arc organization identifier
+        source_dist_id: Distributor ID in source organization
+        arc_auth_header_source: Authorization header for source organization
+        arc_auth_header_target: Authorization header for target organization
+        
+    Returns:
+        Tuple of (target_dist_id, dist_source_target_ids dict mapping source to target IDs)
+    """
     dist_source_target_ids = {}
     # figure out what the new distributor id for the target org should be, update in ANS
     # grab the original distributor name so you can look up the same named distributor in target org
@@ -42,6 +75,23 @@ def rewrite_reference_id(
 def create_target_distributor_restrictions(
     org, to_org, ans, arc_auth_header_source, arc_auth_header_target, to_website
 ):
+    """Create or find matching distributor in target org and update ANS.
+    
+    Attempts to find a distributor with the same name in the target org. If not found,
+    creates a new distributor with the same configuration, including restrictions.
+    All restrictions are tied to the single website passed in.
+    
+    Args:
+        org: Source Arc organization identifier
+        to_org: Target Arc organization identifier
+        ans: ANS dictionary to update with new distributor reference
+        arc_auth_header_source: Authorization header for source organization
+        arc_auth_header_target: Authorization header for target organization
+        to_website: Target website identifier for restrictions
+        
+    Returns:
+        Tuple of (updated ans dict, dist_source_target_ids dict mapping source to target IDs)
+    """
     # This will do as best as can to copy the distributor from the original org into the new org.
     # When restrictions are made to the new org, all are tied to just one website, passed into the script
     # Any more sophisticated manipulation of the restrictions (multiple websites) need to be done manually in the UI
@@ -140,6 +190,23 @@ def create_target_geographic_restrictions(
     dry_run_msg,
     dry_run=False,
 ):
+    """Create or find matching geographic restrictions in target org and update ANS.
+    
+    For each geographic restriction in the source ANS, attempts to find a restriction
+    with the same name in the target org. If not found, creates a new restriction.
+    
+    Args:
+        org: Source Arc organization identifier
+        to_org: Target Arc organization identifier
+        ans: ANS dictionary to update with new geographic restriction references
+        arc_auth_header_source: Authorization header for source organization
+        arc_auth_header_target: Authorization header for target organization
+        dry_run_msg: Message to use for restrictions during dry run
+        dry_run: If True, does not create restrictions, only updates with dry_run_msg
+        
+    Returns:
+        Tuple of (updated ans dict, geo_restrictions dict mapping source to target restriction IDs)
+    """
     geo_restrictions = {}
     if ans.get("content_restrictions", {}).get("geo"):
         restriction_ids = jmespath.search(
