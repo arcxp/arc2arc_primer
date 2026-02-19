@@ -59,6 +59,7 @@ class Arc2ArcRedirects:
         self.scrollId = None
         self.searchFrom = None
         self.runcount = 0
+        self.max_iterations = 10000  # Safety limit to prevent infinite loops
         self.params = {
             "website": self.source_website,
             "q": "type:redirect",
@@ -71,77 +72,116 @@ class Arc2ArcRedirects:
         """Process all redirects from source org and recreate them in target org.
         
         Queries all redirects from source org, determines redirect type (story/video/gallery),
-        and attempts to recreate each redirect in the target org. Supports recursive pagination
-        and test_run limit for processing.
+        and attempts to recreate each redirect in the target org. Uses iterative pagination
+        with safety limits to prevent infinite loops.
         """
-        all_org_redirects = self.query_redirects()
-        redirects = (
-            jmespath.search(
-                "content_elements[*].{id: _id, arc_url: redirect_url, redirect: canonical_url}",
-                all_org_redirects,
-                jmespath.Options(dict_cls=dict),
-            )
-            or []
-        )
-
-        # Figure out what kind of object this redirect is for, so you can run the correct endpoint
-        for index, item in enumerate(redirects):
-            self.runcount += 1
-            if len(self.video_urlstring) and self.video_urlstring in item["redirect"]:
-                print("video", item)
-                redirect_type = "video"
-            elif (
-                len(self.gallery_urlstring)
-                and self.gallery_urlstring in item["redirect"]
-            ):
-                print("gallery", item)
-                redirect_type = "gallery"
-            elif "vanity_redirect" in item["id"]:
-                # if vanity redirect doesn't use the urlstring then not sure how to tell the object, log it
-                print("???", item)
-                # but for now will treat as video redirect
-                redirect_type = "video"
-            else:
-                print("story", item)
-                redirect_type = "story"
-
-            # attempt to create the redirects
-            # 200: redirect was created successfully
-            # 400: maybe redirect already exists in this org,
-            # 404: maybe the object type is wrong, e.g. you sent a video to the story endpoint, etc
-            if not self.dry_run:
-                if redirect_type == "story":
-                    try:
-                        arc_id = item["id"].split("_")[0]
-                        redirect_story_res = requests.post(
-                            arc_endpoints.get_story_redirects_url(
-                                self.to_org,
-                                arc_id,
-                                self.target_website,
-                                item["redirect"],
-                            ),
-                            headers=self.arc_auth_header_target,
-                            json={"document_id": arc_id},
-                            timeout=30
-                        )
-                        print("story", redirect_story_res, redirect_story_res.text)
-                    except Exception as e:
-                        print("story", e)
-
-            if bool(self.test_run) and self.runcount >= self.test_run:
-                self.searchFrom = self.scrollId = None
+        iteration_count = 0
+        previous_pagination_state = None
+        
+        while True:
+            iteration_count += 1
+            
+            # Safety check: prevent infinite loops
+            if iteration_count > self.max_iterations:
+                print(f"WARNING: Maximum iteration limit ({self.max_iterations}) reached. Stopping pagination.")
                 break
+            
+            # Check if pagination state has changed (detect stuck pagination)
+            current_pagination_state = (self.searchFrom, self.scrollId)
+            if current_pagination_state == previous_pagination_state and previous_pagination_state is not None:
+                print("WARNING: Pagination state did not advance. Stopping to prevent infinite loop.")
+                break
+            previous_pagination_state = current_pagination_state
+            
+            # Query for redirects
+            all_org_redirects = self.query_redirects()
+            
+            # Extract redirects from response
+            redirects = (
+                jmespath.search(
+                    "content_elements[*].{id: _id, arc_url: redirect_url, redirect: canonical_url}",
+                    all_org_redirects,
+                    jmespath.Options(dict_cls=dict),
+                )
+                or []
+            )
+            
+            # If no redirects in this batch, check if we should continue
+            if not redirects:
+                # If there's no pagination state, we're done
+                if not (self.searchFrom or self.scrollId):
+                    break
+                # If there's pagination state but no content, something might be wrong
+                # Continue to next iteration to see if we get content
+                continue
 
-        if all_org_redirects.get("content_elements") and (
-            self.searchFrom or self.scrollId
-        ):
-            self.doit()
+            # Figure out what kind of object this redirect is for, so you can run the correct endpoint
+            for index, item in enumerate(redirects):
+                self.runcount += 1
+                if len(self.video_urlstring) and self.video_urlstring in item["redirect"]:
+                    print("video", item)
+                    redirect_type = "video"
+                elif (
+                    len(self.gallery_urlstring)
+                    and self.gallery_urlstring in item["redirect"]
+                ):
+                    print("gallery", item)
+                    redirect_type = "gallery"
+                elif "vanity_redirect" in item["id"]:
+                    # if vanity redirect doesn't use the urlstring then not sure how to tell the object, log it
+                    print("???", item)
+                    # but for now will treat as video redirect
+                    redirect_type = "video"
+                else:
+                    print("story", item)
+                    redirect_type = "story"
+
+                # attempt to create the redirects
+                # 200: redirect was created successfully
+                # 400: maybe redirect already exists in this org,
+                # 404: maybe the object type is wrong, e.g. you sent a video to the story endpoint, etc
+                if not self.dry_run:
+                    if redirect_type == "story":
+                        try:
+                            arc_id = item["id"].split("_")[0]
+                            redirect_story_res = requests.post(
+                                arc_endpoints.get_story_redirects_url(
+                                    self.to_org,
+                                    arc_id,
+                                    self.target_website,
+                                    item["redirect"],
+                                ),
+                                headers=self.arc_auth_header_target,
+                                json={"document_id": arc_id},
+                                timeout=30
+                            )
+                            print("story", redirect_story_res, redirect_story_res.text)
+                        except Exception as e:
+                            print("story", e)
+
+                # Check test_run limit
+                if bool(self.test_run) and self.runcount >= self.test_run:
+                    self.searchFrom = self.scrollId = None
+                    break
+
+            # Check termination conditions
+            # If test_run limit was hit, break out of outer loop
+            if bool(self.test_run) and self.runcount >= self.test_run:
+                break
+            
+            # If no more pagination state, we're done
+            if not (self.searchFrom or self.scrollId):
+                break
+            
+            # If no content_elements in response, we're done
+            if not all_org_redirects.get("content_elements"):
+                break
 
     def query_redirects(self):
         """Query redirects from source org using Content API scan endpoint.
         
         Uses pagination (scrollId or from parameter) to retrieve all redirects.
-        Updates internal pagination state for recursive calls.
+        Updates internal pagination state for iterative pagination.
         
         Returns:
             Dictionary containing redirect content_elements and pagination info
