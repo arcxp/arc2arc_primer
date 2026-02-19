@@ -224,8 +224,7 @@ class Arc2ArcStory:
     def transform_photo_references(self):
         """
         Finds and rewrites Photo Center references in ANS that will need to be ingested into target organization.
-        Re-ids references from Photo Center objects and includes both old and new ids in the return object self.
-        references
+        Re-ids references from Photo Center objects and includes both old and new ids in the return object self.references.
         New ids are used in the rewritten references.
 
         NOTE: promo_items can support other keys than `.basic` and `.lead_art` but this is not common.
@@ -235,112 +234,228 @@ class Arc2ArcStory:
             self.references
             self.ans
         """
-        references_images_newids = {}
-        references_galleries_newids = {}
-        combined_newids = {}
-        header = {self.from_org: self.to_org}
+        # Step 1: Find all image and gallery references
+        image_ids = self._find_image_references()
+        gallery_ids = self._find_gallery_references()
+        
+        # Step 2: Generate new IDs for images and galleries
+        image_id_map = self._generate_new_ids(image_ids, self.to_org)
+        gallery_id_map = self._generate_new_ids(gallery_ids, self.to_org)
+        
+        # Step 3: Process nested images within galleries
+        nested_image_ids = self._get_nested_gallery_images(gallery_ids)
+        nested_image_id_map = self._generate_new_ids(nested_image_ids, self.to_org)
+        image_id_map.update(nested_image_id_map)
+        
+        # Step 4: Update references tracking
+        self._update_references_tracking(image_id_map, gallery_id_map)
+        
+        # Step 5: Replace IDs throughout ANS structure
+        combined_id_map = {**image_id_map, **gallery_id_map}
+        self._replace_ids_in_ans(combined_id_map)
 
-        # Filter content_elements, promo_items.basic, related_content for
-        # `referent.type: images` and select out the `$._id` or `$.referent.id` to add to self.references for return display
-        ce_imgs = (
-            jmespath.search(
-                "content_elements[?referent && referent.type == `image`] | [*].referent.id",
-                self.ans,
-            )
-            or []
-        )
-        pi_imgs = jmespath.search("(promo_items.basic.*)[?type==`image`].id", self.ans) or []
-        rc_img = (
-            jmespath.search(
-                "related_content.basic[?referent && referent.type == `image`] | [*].referent.id",
-                self.ans,
-            )
-            or []
-        )
-        references_images = list(set(ce_imgs + pi_imgs + rc_img)) or None
+    def _find_image_references(self):
+        """Find all image IDs referenced in content_elements, promo_items, and related_content.
+        
+        Returns:
+            Set of unique image IDs found in the ANS
+        """
+        image_ids = set()
+        
+        # Content elements
+        ce_images = jmespath.search(
+            "content_elements[?referent && referent.type == `image`] | [*].referent.id",
+            self.ans
+        ) or []
+        image_ids.update(ce_images)
+        
+        # Promo items basic
+        pi_images = jmespath.search(
+            "(promo_items.basic.*)[?type==`image`].id",
+            self.ans
+        ) or []
+        image_ids.update(pi_images)
+        
+        # Related content
+        rc_images = jmespath.search(
+            "related_content.basic[?referent && referent.type == `image`] | [*].referent.id",
+            self.ans
+        ) or []
+        image_ids.update(rc_images)
+        
+        return image_ids
 
-        # Filter content_elements, promo_items.lead_art ,related_content for
-        # `referent.type: gallery` and select out the `$._id` or `$.referent.id` to add to self.references for return display
-        ce_gals = (
-            jmespath.search(
-                "content_elements[?referent && referent.type == `gallery`]._id",
-                self.ans,
-            )
-            or []
-        )
-        pi_gals = (
-            jmespath.search("(promo_items.lead_art.*)[?type==`gallery`].id", self.ans) or []
-        )
-        rc_gals = (
-            jmespath.search(
-                "related_content.basic[?referent && referent.type == `gallery`]._id",
-                self.ans,
-            )
-            or []
-        )
-        references_galleries = list(set(ce_gals + pi_gals + rc_gals)) or None
+    def _find_gallery_references(self):
+        """Find all gallery IDs referenced in content_elements, promo_items, and related_content.
+        
+        Returns:
+            Set of unique gallery IDs found in the ANS
+        """
+        gallery_ids = set()
+        
+        # Content elements
+        ce_galleries = jmespath.search(
+            "content_elements[?referent && referent.type == `gallery`]._id",
+            self.ans
+        ) or []
+        gallery_ids.update(ce_galleries)
+        
+        # Promo items lead_art
+        pi_galleries = jmespath.search(
+            "(promo_items.lead_art.*)[?type==`gallery`].id",
+            self.ans
+        ) or []
+        gallery_ids.update(pi_galleries)
+        
+        # Related content
+        rc_galleries = jmespath.search(
+            "related_content.basic[?referent && referent.type == `gallery`]._id",
+            self.ans
+        ) or []
+        gallery_ids.update(rc_galleries)
+        
+        return gallery_ids
 
-        # Generate new arc ids for Photo Center objects that are moving to a new organization.
-        #   There are some organizations that are rare exceptions to this restriction/
-        # NOTE: Story and Video objects do not need new arc ids when moving to a new organization.
-        if references_images:
-            for img in references_images:
-                references_images_newids.update(
-                    {img: arc_id.generate_arc_id(img, self.to_org)}
-                )
-            self.references.images = references_images_newids
-            self.references.images.update(header)
+    def _generate_new_ids(self, old_ids, target_org):
+        """Generate new Arc IDs for a set of old IDs.
+        
+        Args:
+            old_ids: Set or list of old Arc IDs
+            target_org: Target organization identifier
+            
+        Returns:
+            Dictionary mapping old_id -> new_id
+        """
+        if not old_ids:
+            return {}
+        
+        return {
+            old_id: arc_id.generate_arc_id(old_id, target_org)
+            for old_id in old_ids
+        }
 
-        if references_galleries:
-            for gal in references_galleries:
-                references_galleries_newids.update(
-                    {gal: arc_id.generate_arc_id(gal, self.to_org)}
-                )
-            self.references.galleries = references_galleries_newids
-            self.references.galleries.update(header)
-
-            # If there are galleries, get the image ids inside and add these images to the image references list
-            for gal_id in references_galleries:
+    def _get_nested_gallery_images(self, gallery_ids):
+        """Fetch gallery content and extract nested image IDs.
+        
+        Args:
+            gallery_ids: Set of gallery IDs to process
+            
+        Returns:
+            Set of image IDs found within the galleries
+        """
+        nested_image_ids = set()
+        
+        for gallery_id in gallery_ids:
+            try:
                 gallery_res = requests.get(
-                    arc_endpoints.get_galleries_url(self.to_org, gal_id),
+                    arc_endpoints.get_galleries_url(self.to_org, gallery_id),
                     headers=self.arc_auth_header_source,
                 )
+                
                 if gallery_res.ok:
-                    # make the image ids in the gallery content_elements unique. hash(original_id + org_id)
-                    gal_imgs = gallery_res.json()["content_elements"]
-                    for index, element in enumerate(gal_imgs):
-                        old_id = element["_id"]
-                        regen_id = arc_id.generate_arc_id(old_id, self.to_org)
-                        references_images_newids.update({old_id: regen_id})
-                        self.references.images.update(references_images_newids)
+                    content_elements = gallery_res.json().get("content_elements", [])
+                    for element in content_elements:
+                        if element.get("_id"):
+                            nested_image_ids.add(element["_id"])
+            except Exception as e:
+                # Log error but continue processing other galleries
+                print(f"Warning: Could not fetch gallery {gallery_id}: {e}")
+        
+        return nested_image_ids
 
-        # replace Photo Center arc ids in the ANS references with regenerated values: in content elements, promo items, related contents
-        combined_newids.update(references_images_newids)
-        combined_newids.update(references_galleries_newids)
-        for newid in combined_newids:
-            # content elements
-            for this_ce in jmespath.search(f"content_elements[?_id==`{newid}`]", self.ans):
-                this_ce["_id"] = combined_newids[newid]
-                this_ce["referent"]["id"] = combined_newids[newid]
-            # related_content
-            if self.ans.get("related_content", {}).get("basic"):
-                for this_rc in jmespath.search(
-                    f"related_content.basic[?_id==`{newid}`]", self.ans
-                ):
-                    this_rc["_id"] = combined_newids[newid]
-                    this_rc["referent"]["id"] = combined_newids[newid]
-            # featured media image is in promo_items.basic
-            if jmespath.search(f"promo_items.basic._id==`{newid}`", self.ans):
-                self.ans["promo_items"]["basic"]["_id"] = combined_newids[newid]
-                self.ans["promo_items"]["basic"]["referent"]["id"] = combined_newids[
-                    newid
-                ]
-            # featured media gallery is in promo_items.lead_art
-            if jmespath.search(f"promo_items.lead_art._id==`{newid}`", self.ans):
-                self.ans["promo_items"]["lead_art"]["_id"] = combined_newids[newid]
-                self.ans["promo_items"]["lead_art"]["referent"]["id"] = combined_newids[
-                    newid
-                ]
+    def _update_references_tracking(self, image_id_map, gallery_id_map):
+        """Update self.references with the ID mappings.
+        
+        Args:
+            image_id_map: Dictionary mapping old image IDs to new IDs
+            gallery_id_map: Dictionary mapping old gallery IDs to new IDs
+        """
+        header = {self.from_org: self.to_org}
+        
+        if image_id_map:
+            self.references.images = {**image_id_map, **header}
+        
+        if gallery_id_map:
+            self.references.galleries = {**gallery_id_map, **header}
+
+    def _replace_ids_in_ans(self, id_map):
+        """Replace old IDs with new IDs throughout the ANS structure.
+        
+        Args:
+            id_map: Dictionary mapping old_id -> new_id
+        """
+        for old_id, new_id in id_map.items():
+            # Replace in content_elements
+            self._replace_id_in_content_elements(old_id, new_id)
+            
+            # Replace in related_content
+            self._replace_id_in_related_content(old_id, new_id)
+            
+            # Replace in promo_items.basic
+            self._replace_id_in_promo_items_basic(old_id, new_id)
+            
+            # Replace in promo_items.lead_art
+            self._replace_id_in_promo_items_lead_art(old_id, new_id)
+
+    def _replace_id_in_content_elements(self, old_id, new_id):
+        """Replace ID in content_elements section of ANS.
+        
+        Args:
+            old_id: Old Arc ID to replace
+            new_id: New Arc ID to use
+        """
+        for element in jmespath.search(f"content_elements[?_id==`{old_id}`]", self.ans) or []:
+            element["_id"] = new_id
+            if element.get("referent"):
+                element["referent"]["id"] = new_id
+
+    def _replace_id_in_related_content(self, old_id, new_id):
+        """Replace ID in related_content section of ANS.
+        
+        Args:
+            old_id: Old Arc ID to replace
+            new_id: New Arc ID to use
+        """
+        related_content = self.ans.get("related_content", {}).get("basic")
+        if not related_content:
+            return
+        
+        for item in jmespath.search(f"related_content.basic[?_id==`{old_id}`]", self.ans) or []:
+            item["_id"] = new_id
+            if item.get("referent"):
+                item["referent"]["id"] = new_id
+
+    def _replace_id_in_promo_items_basic(self, old_id, new_id):
+        """Replace ID in promo_items.basic section of ANS.
+        
+        Args:
+            old_id: Old Arc ID to replace
+            new_id: New Arc ID to use
+        """
+        promo_basic = self.ans.get("promo_items", {}).get("basic")
+        if not promo_basic:
+            return
+        
+        if jmespath.search(f"promo_items.basic._id==`{old_id}`", self.ans):
+            promo_basic["_id"] = new_id
+            if promo_basic.get("referent"):
+                promo_basic["referent"]["id"] = new_id
+
+    def _replace_id_in_promo_items_lead_art(self, old_id, new_id):
+        """Replace ID in promo_items.lead_art section of ANS.
+        
+        Args:
+            old_id: Old Arc ID to replace
+            new_id: New Arc ID to use
+        """
+        promo_lead_art = self.ans.get("promo_items", {}).get("lead_art")
+        if not promo_lead_art:
+            return
+        
+        if jmespath.search(f"promo_items.lead_art._id==`{old_id}`", self.ans):
+            promo_lead_art["_id"] = new_id
+            if promo_lead_art.get("referent"):
+                promo_lead_art["referent"]["id"] = new_id
 
     def transform_circulation(self):
         """
