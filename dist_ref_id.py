@@ -31,7 +31,12 @@ def find_reference_id(ans):
     # Is there a distributor in the ans?
     try:
         references_distributor = jmespath.search("distributor.reference_id", ans) or ""
-    except:
+    except (KeyError, TypeError, AttributeError):
+        # ANS structure doesn't have distributor or distributor.reference_id
+        references_distributor = None
+    except Exception as e:
+        # Unexpected error - log it but don't crash
+        print(f"Warning: Unexpected error finding distributor reference: {e}")
         references_distributor = None
     return references_distributor
 
@@ -58,11 +63,11 @@ def rewrite_reference_id(
     # figure out what the new distributor id for the target org should be, update in ANS
     # grab the original distributor name so you can look up the same named distributor in target org
     source_distributor = requests.get(
-        get_distributor_url(org, source_dist_id), headers=arc_auth_header_source
+        get_distributor_url(org, source_dist_id), headers=arc_auth_header_source, timeout=30
     )
     source_distributor = source_distributor.json().get("name", "undefined")
     target_distributors = requests.get(
-        get_distributor_url(to_org), headers=arc_auth_header_target
+        get_distributor_url(to_org), headers=arc_auth_header_target, timeout=30
     )
     target_distributors = target_distributors.json().get("rows")
     target_dist_id = jmespath.search(
@@ -106,6 +111,7 @@ def create_target_distributor_restrictions(
             dist_res = requests.get(
                 arc_endpoints.get_distributor_url(org, dist_id),
                 headers=arc_auth_header_source,
+                timeout=30
             )
             if dist_res.ok:
                 transformed_ans = dist_res.json()
@@ -116,6 +122,7 @@ def create_target_distributor_restrictions(
                     all_restrictions = requests.get(
                         arc_endpoints.get_restriction_url(to_org),
                         headers=arc_auth_header_target,
+                        timeout=30
                     )
                     all_restrictions = all_restrictions.json().get("rows")
 
@@ -138,14 +145,18 @@ def create_target_distributor_restrictions(
                                 arc_endpoints.get_restriction_url(to_org),
                                 headers=arc_auth_header_target,
                                 json=restr,
+                                timeout=30
                             )
-                            new_restr_ids.insert(
-                                0, {"id": restr_res.json().get("data").get("id")}
-                            )
-                        except:
+                            restr_res.raise_for_status()
+                            restr_data = restr_res.json()
+                            new_id = restr_data.get("data", {}).get("id")
+                            if new_id:
+                                new_restr_ids.insert(0, {"id": new_id})
+                        except (requests.exceptions.HTTPError, requests.exceptions.RequestException, KeyError, ValueError, TypeError) as e:
                             # find existing restriction by the restriction name.  Use that id.
                             # if this doesn't work the restrictions will end up as an empty array
                             # and you'll have to recreate the restrictions manually in the UI
+                            print(f"Warning: Could not create restriction '{restr.get('name', 'unknown')}': {type(e).__name__}")
                             existing_restr_id = jmespath.search(
                                 f"[*] | [?name==`{restr['name']}`].id", all_restrictions
                             )
@@ -168,6 +179,7 @@ def create_target_distributor_restrictions(
                     arc_endpoints.get_distributor_url(to_org),
                     headers=arc_auth_header_target,
                     json=transformed_ans,
+                    timeout=30
                 )
                 if not dist_res2.ok:
                     target_dist_id = jmespath.search("context.distributor.id", dist_res2.json())
@@ -219,7 +231,9 @@ def create_target_geographic_restrictions(
                 restr_res = requests.get(
                     arc_endpoints.get_geographic_restriction_url(org, geo_id),
                     headers=arc_auth_header_source,
+                    timeout=30
                 )
+                restr_res.raise_for_status()
                 restr = restr_res.json()
                 restr.pop("createdAt", None)
                 restr.pop("createdBy", None)
@@ -234,18 +248,26 @@ def create_target_geographic_restrictions(
                         arc_endpoints.get_geographic_restriction_url(to_org),
                         headers=arc_auth_header_target,
                         json=restr,
+                        timeout=30
                     )
-                    new_geo_id = restr_res.json()["id"]
-                except:
+                    restr_res.raise_for_status()
+                    restr_data = restr_res.json()
+                    new_geo_id = restr_data.get("id")
+                except (requests.exceptions.HTTPError, requests.exceptions.RequestException, KeyError, ValueError, TypeError) as e:
                     # find existing geo restriction in target org with this name, return that value
-                    restr_res = requests.get(
-                        arc_endpoints.get_geographic_restriction_url(to_org),
-                        headers=arc_auth_header_target,
-                        params={"name": restr["name"], "limit": 1},
-                    )
-                    if restr_res.ok:
-                        geo = restr_res.json()
-                        new_geo_id = jmespath.search("data | [0] | id", geo)
+                    print(f"Warning: Could not create geo restriction '{restr.get('name', 'unknown')}': {type(e).__name__}")
+                    try:
+                        restr_res = requests.get(
+                            arc_endpoints.get_geographic_restriction_url(to_org),
+                            headers=arc_auth_header_target,
+                            params={"name": restr["name"], "limit": 1},
+                            timeout=30
+                        )
+                        if restr_res.ok:
+                            geo = restr_res.json()
+                            new_geo_id = jmespath.search("data | [0] | id", geo)
+                    except (requests.exceptions.RequestException, KeyError, ValueError, TypeError) as e2:
+                        print(f"Warning: Could not find existing geo restriction: {type(e2).__name__}")
                 finally:
                     new_geo_restrictions.append({"restriction_id": new_geo_id})
                     new_geo_restriction_ids.update({orig_restr_id: new_geo_id})

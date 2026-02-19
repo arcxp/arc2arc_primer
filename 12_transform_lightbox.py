@@ -64,6 +64,7 @@ class Arc2ArcLightbox:
         lightbox_res = requests.get(
             arc_endpoints.get_lightbox_url(self.from_org, self.lightbox_id),
             headers=self.arc_auth_header_source,
+            timeout=30
         )
         if lightbox_res.ok:
             self.lightbox = lightbox_res.json()
@@ -106,6 +107,7 @@ class Arc2ArcLightbox:
                 arc_endpoints.get_lightbox_url(self.to_org),
                 headers=self.arc_auth_header_target,
                 json=self.lightbox,
+                timeout=30
             )
         except Exception as e:
             self.message = f"{lightbox_res2.status_code} {lightbox_res2.reason} {str(e)}"
@@ -118,6 +120,7 @@ class Arc2ArcLightbox:
                     arc_endpoints.get_lightbox_url(self.to_org, new_lightbox_id, True),
                     headers=self.arc_auth_header_target,
                     json=self.lightbox_images_newids,
+                    timeout=30
                 )
                 print("photos posted to new lightbox in new org", lightbox_res3)
             else:

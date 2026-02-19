@@ -1,4 +1,5 @@
 import argparse
+import json
 
 import arc_endpoints
 import jmespath
@@ -121,6 +122,7 @@ class Arc2ArcRedirects:
                             ),
                             headers=self.arc_auth_header_target,
                             json={"document_id": arc_id},
+                            timeout=30
                         )
                         print("story", redirect_story_res, redirect_story_res.text)
                     except Exception as e:
@@ -152,10 +154,15 @@ class Arc2ArcRedirects:
                 f"https://api.{self.from_org}.arcpublishing.com/content/v4/scan",
                 headers=self.arc_auth_header_source,
                 params=self.params,
+                timeout=30
             )
             all_org_redirects = redirects_res.json()
+        except (requests.exceptions.RequestException, ValueError, json.JSONDecodeError) as e:
+            print(f"exception fetching redirects: {type(e).__name__}: {str(e)}")
+            all_org_redirects = {}
         except Exception as e:
-            print("exception", redirects_res, redirects_res.text, e)
+            # Handle case where redirects_res might not be defined
+            print(f"exception fetching redirects: {type(e).__name__}: {str(e)}")
             all_org_redirects = {}
 
         scroll_or_from = all_org_redirects.get("next", None)

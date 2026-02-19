@@ -78,6 +78,7 @@ class Arc2SandboxImage:
         image_res = requests.get(
             arc_endpoints.get_photo_url(self.from_org, self.image_arc_id),
             headers=self.arc_auth_header_source,
+            timeout=30
         )
         if image_res.ok:
             self.ans = image_res.json()
@@ -199,6 +200,7 @@ class Arc2SandboxImage:
                 arc_endpoints.ans_validation_url(self.to_org),
                 headers=self.arc_auth_header_target,
                 json=self.ans,
+                timeout=30
             )
             if image_res2.ok:
                 self.validation = True
@@ -226,6 +228,7 @@ class Arc2SandboxImage:
                 headers=arc_auth_header_target,
                 json=mc.__dict__,
                 params={"ansId": self.image_arc_id, "ansType": "image"},
+                timeout=30
             )
 
             if not image_res3.ok:

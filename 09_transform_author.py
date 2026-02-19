@@ -44,8 +44,9 @@ class Arc2ArcAuthor:
 
         author_exists = requests.get(
             arc_endpoints.get_author_url(self.to_org),
-            headers=arc_auth_header_target,
+            headers=self.arc_auth_header_target,
             params={"_id": self.author_id},
+            timeout=30
         )
         if author_exists.ok:
             self.message = f"{author_exists} {self.author_id} author already exists in {self.to_org} {author_exists.json()}"
@@ -53,8 +54,9 @@ class Arc2ArcAuthor:
 
         author_res = requests.get(
             arc_endpoints.get_author_url(self.from_org),
-            headers=arc_auth_header_source,
+            headers=self.arc_auth_header_source,
             params={"_id": self.author_id},
+            timeout=30
         )
         # This will copy the exact data from the original org into the new org.
         # The author photo will STAY in the same folder of the AWS author photo account, under the original org's name
@@ -63,8 +65,9 @@ class Arc2ArcAuthor:
             if author_res.ok:
                 author_res2 = requests.post(
                     arc_endpoints.get_author_url(self.to_org, "v2"),
-                    headers=arc_auth_header_target,
+                    headers=self.arc_auth_header_target,
                     json=author_res.json(),
+                    timeout=30
                 )
                 self.message = (
                     f"{author_res2} {self.to_org} {self.author_id} {author_res2.json()}"

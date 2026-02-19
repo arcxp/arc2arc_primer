@@ -84,6 +84,7 @@ class Arc2SandboxGallery:
         gallery_res = requests.get(
             arc_endpoints.get_galleries_url(self.from_org, self.gallery_arc_id),
             headers=self.arc_auth_header_source,
+            timeout=30
         )
         if gallery_res.ok:
             self.ans = gallery_res.json()
@@ -130,7 +131,8 @@ class Arc2SandboxGallery:
             for index, c in enumerate(self.ans["credits"]["by"]):
                 try:
                     self.ans["credits"]["by"][index].pop("version", None)
-                except:
+                except (KeyError, IndexError, TypeError):
+                    # version key doesn't exist or structure is invalid - continue
                     pass
 
         references_authors = jmespath.search("credits.by[*].referent.id", self.ans)
@@ -220,6 +222,7 @@ class Arc2SandboxGallery:
                 arc_endpoints.ans_validation_url(self.to_org),
                 headers=self.arc_auth_header_target,
                 json=self.ans,
+                timeout=30
             )
             if gallery_res2.ok:
                 self.validation = True
@@ -246,6 +249,7 @@ class Arc2SandboxGallery:
                 headers=self.arc_auth_header_target,
                 json=mc.__dict__,
                 params={"ansId": self.gallery_arc_id, "ansType": "gallery"},
+                timeout=30
             )
             if not gallery_res3.ok:
                 raise arc2arc_exceptions.ArcObjectToMigrationCenterFailed

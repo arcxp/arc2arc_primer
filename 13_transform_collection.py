@@ -65,6 +65,7 @@ class Arc2ArcCollection:
         collection_res = requests.get(
             arc_endpoints.get_collection_url(self.from_org, self.collection_arc_id),
             headers=self.arc_auth_header_source,
+            timeout=30
         )
         if collection_res.ok:
             self.collection = collection_res.json().get("data")
@@ -101,6 +102,7 @@ class Arc2ArcCollection:
                 arc_endpoints.get_collection_url(self.to_org),
                 headers=self.arc_auth_header_target,
                 json=self.collection,
+                timeout=30
             )
             if not collection_res2.ok:
                 self.message = f"{collection_res2} {self.from_org} {self.collection_arc_id} {collection_res2.text}"

@@ -134,6 +134,7 @@ class Arc2ArcStory:
         story_res = requests.get(
             arc_endpoints.draft_find_revision_url(self.from_org, self.story_arc_id),
             headers=self.arc_auth_header_source,
+            timeout=30
         )
         if story_res.ok:
             story_revision = jmespath.search("draft_revision_id", story_res.json())
@@ -142,6 +143,7 @@ class Arc2ArcStory:
                     self.from_org, self.story_arc_id, story_revision
                 ),
                 headers=self.arc_auth_header_source,
+                timeout=30
             )
             if story_res2.ok:
                 self.ans = jmespath.search("ans", story_res2.json())
@@ -150,6 +152,7 @@ class Arc2ArcStory:
                         self.from_org, self.story_arc_id
                     ),
                     headers=self.arc_auth_header_source,
+                    timeout=30
                 )
                 if story_res3.ok:
                     self.circulation = jmespath.search("circulations", story_res3.json())
@@ -350,6 +353,7 @@ class Arc2ArcStory:
                 gallery_res = requests.get(
                     arc_endpoints.get_galleries_url(self.to_org, gallery_id),
                     headers=self.arc_auth_header_source,
+                    timeout=30
                 )
                 
                 if gallery_res.ok:
@@ -357,9 +361,9 @@ class Arc2ArcStory:
                     for element in content_elements:
                         if element.get("_id"):
                             nested_image_ids.add(element["_id"])
-            except Exception as e:
+            except (requests.exceptions.RequestException, KeyError, ValueError, TypeError) as e:
                 # Log error but continue processing other galleries
-                print(f"Warning: Could not fetch gallery {gallery_id}: {e}")
+                print(f"Warning: Could not fetch gallery {gallery_id}: {type(e).__name__}")
         
         return nested_image_ids
 
@@ -528,7 +532,8 @@ class Arc2ArcStory:
             for index, c in enumerate(self.ans["credits"]["by"]):
                 try:
                     self.ans["credits"]["by"][index].pop("version", None)
-                except Exception:
+                except (KeyError, IndexError, TypeError):
+                    # version key doesn't exist or structure is invalid - continue
                     pass
 
         # Build list of video references and add to return display. Video ids do not need to be regenerated.
@@ -567,6 +572,7 @@ class Arc2ArcStory:
                 arc_endpoints.ans_validation_url(self.to_org),
                 headers=self.arc_auth_header_target,
                 json=self.ans,
+                timeout=30
             )
             if story_res4.ok:
                 self.validation = True
@@ -601,6 +607,7 @@ class Arc2ArcStory:
                 headers=self.arc_auth_header_target,
                 json=mc.__dict__,
                 params={"ansId": self.story_arc_id, "ansType": "story"},
+                timeout=30
             )
 
             if not story_res5.ok:
@@ -620,6 +627,7 @@ class Arc2ArcStory:
                 self.from_org, self.story_arc_id, self.from_website
             ),
             headers=self.arc_auth_header_source,
+            timeout=30
         )
         if story_res6.ok:
             redirects = story_res6.json()["redirects"]
@@ -638,11 +646,19 @@ class Arc2ArcStory:
                             ),
                             headers=self.arc_auth_header_target,
                             json={"document_id": self.story_arc_id},
+                            timeout=30
                         )
                         if not story_res7.ok:
                             raise arc2arc_exceptions.ArcRedirectAlreadyExistsFailed
-                    except Exception as e:
-                        print("redirect", story_res7.json().get("error_message", ""), str(e))
+                    except arc2arc_exceptions.ArcRedirectAlreadyExistsFailed:
+                        raise
+                    except (requests.exceptions.RequestException, KeyError, ValueError, TypeError) as e:
+                        error_msg = ""
+                        try:
+                            error_msg = story_res7.json().get("error_message", str(e))
+                        except (AttributeError, ValueError, json.JSONDecodeError):
+                            error_msg = str(e)
+                        print(f"redirect error: {error_msg}")
                     else:
                         print("redirect created", story_res7.json())
 

@@ -114,6 +114,7 @@ class Arc2SandboxStory:
         story_res = requests.get(
             arc_endpoints.draft_find_revision_url(self.from_org, self.story_arc_id),
             headers=self.arc_auth_header_source,
+            timeout=30
         )
         if story_res.ok:
             story_revision = jmespath.search("draft_revision_id", story_res.json())
@@ -122,6 +123,7 @@ class Arc2SandboxStory:
                     self.from_org, self.story_arc_id, story_revision
                 ),
                 headers=self.arc_auth_header_source,
+                timeout=30
             )
             if story_res2.ok:
                 self.ans = jmespath.search("ans", story_res2.json())
@@ -129,7 +131,8 @@ class Arc2SandboxStory:
                     arc_endpoints.draft_get_circulations_url(
                         self.from_org, self.story_arc_id
                     ),
-                    headers=arc_auth_header_source,
+                    headers=self.arc_auth_header_source,
+                    timeout=30
                 )
                 if story_res3.ok:
                     self.circulation = jmespath.search("circulations", story_res3.json())
@@ -303,6 +306,7 @@ class Arc2SandboxStory:
                 arc_endpoints.ans_validation_url(self.to_org),
                 headers=self.arc_auth_header_target,
                 json=self.ans,
+                timeout=30
             )
             if story_res4.ok:
                 self.validation = True
@@ -336,6 +340,7 @@ class Arc2SandboxStory:
                 headers=self.arc_auth_header_target,
                 json=mc.__dict__,
                 params={"ansId": self.story_arc_id, "ansType": "story"},
+                timeout=30
             )
             if not story_res5.ok:
                 raise arc2arc_exceptions.ArcObjectToMigrationCenterFailed
@@ -353,6 +358,7 @@ class Arc2SandboxStory:
                 self.from_org, self.story_arc_id, self.ans.get("canonical_website")
             ),
             headers=self.arc_auth_header_source,
+            timeout=30
         )
         if story_res6.ok:
             redirects = story_res6.json()["redirects"]
@@ -371,6 +377,7 @@ class Arc2SandboxStory:
                             ),
                             headers=self.arc_auth_header_target,
                             json={"document_id": self.story_arc_id},
+                            timeout=30
                         )
                         if not story_res7.ok:
                             raise arc2arc_exceptions.ArcRedirectAlreadyExistsFailed

@@ -117,6 +117,7 @@ class Arc2ArcVideo:
             arc_endpoints.get_video_url(self.to_org, "prod"),
             headers=self.arc_auth_header_target,
             params={"uuid": self.video_arc_id},
+            timeout=30
         )
         if not self.dry_run and video_exists_res.ok and video_exists_res.json():
             self.message = f"video {self.video_arc_id} already exists at {self.to_org}, do not migrate {video_exists_res}"
@@ -126,6 +127,7 @@ class Arc2ArcVideo:
                 arc_endpoints.get_video_url(self.from_org, "prod"),
                 headers=self.arc_auth_header_source,
                 params={"uuid": self.video_arc_id},
+                timeout=30
             )
             if video_res.ok:
                 self.ans = video_res.json()[0]
@@ -268,7 +270,8 @@ class Arc2ArcVideo:
             anglerfish_id = self.ans["additional_properties"]["anglerfisharc_id"]
             self.ans["additional_properties"].pop(anglerfish_id)
             self.ans["additional_properties"].pop("anglerfisharc_id")
-        except:
+        except (KeyError, TypeError, AttributeError):
+            # anglerfisharc_id doesn't exist or structure is invalid - continue
             pass
 
         # promo image/promo item; rebuild the promo item ANS, causing the image to be imported into the new org
@@ -391,6 +394,7 @@ class Arc2ArcVideo:
                 arc_endpoints.ans_validation_url(self.from_org, arc_constants.ANS_VERSION_VIDEO),
                 headers=self.arc_auth_header_source,
                 json=self.ans,
+                timeout=30
             )
             if video_res2.ok:
                 self.validation = True
@@ -420,6 +424,7 @@ class Arc2ArcVideo:
                     headers=self.arc_auth_header_target,
                     json=mc.__dict__,
                     params={"ansId": self.video_arc_id, "ansType": "video"},
+                    timeout=30
                 )
                 if not video_res3.ok:
                     raise arc2arc_exceptions.ArcObjectToMigrationCenterFailed
