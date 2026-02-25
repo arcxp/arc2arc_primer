@@ -157,8 +157,11 @@ class Arc2ArcVideo:
         self.ans.get("owner", {}).update({"id": self.to_org})
         self.ans["version"] = arc_constants.ANS_VERSION_VIDEO
         self.ans.pop("embed_html", None)
+        self.ans.pop("powaConfig", None)
         self.ans.pop("subtype", None) # if left in, the Video Center API will error with "Could not resolve subsection for video"
         self.ans.get("source", {}).pop("edit_url", None)
+        self.ans.get("additional_properties", {}).pop("videoId", None)
+        self.ans.get("additional_properties", {}).pop("imageResizerUrls", None)
         if self.target_video_category:
             self.ans["additional_properties"]["videoCategory"] = self.target_video_category
         self.ans["additional_properties"][
@@ -184,70 +187,77 @@ class Arc2ArcVideo:
             - there are no Video circulation objects that needs to be ingested, as with a story
             - circulation information is provided as a way to validate the source website/section data vs transformed target website/section data
         """
+        self._extract_and_set_source_circulation()
+        self._clean_taxonomy_and_set_websites()
+        self._apply_section_references()
+        self._update_target_circulation_references()
 
-        # add original circulation info to the references structure
+    def _extract_and_set_source_circulation(self):
+        """Extract source circulation from taxonomy and set references for display."""
         source_circulation = jmespath.search(
             "[*].{section: _id, website: _website}[]",
             self.ans["taxonomy"]["sections"],
             jmespath.Options(dict_cls=dict),
         )
         self.references.circulation = {self.from_org: source_circulation}
+
+    def _clean_taxonomy_and_set_websites(self):
+        """Remove old taxonomy fields and set canonical website and websites to target."""
         self.ans["taxonomy"].pop("primary_site", None)
         self.ans["taxonomy"].pop("sites", None)
         self.ans["canonical_website"] = self.target_website
-
-        # WARNING this logic does not capture if the video is published to multiple websites, and each website has a
-        # different website_url,
+        # WARNING: this logic does not capture if the video is published to multiple websites with different website_url
         self.ans.pop("websites", None)
         self.ans["websites"] = {
             self.target_website: {"website_url": self.ans["canonical_url"]}
         }
 
-        # reformat taxonomy.primary_section, sections to use references format
+    def _build_section_reference(self, section_id, is_primary=False):
+        """Build a section reference dict for taxonomy.
+        
+        Args:
+            section_id: Section ID for the referent
+            is_primary: If True, include referent_properties for primary section
+            
+        Returns:
+            Section reference dictionary
+        """
+        referent = {
+            "id": section_id,
+            "type": "section",
+            "website": self.target_website,
+        }
+        if is_primary:
+            referent["referent_properties"] = {"additional_properties": {"primary": True}}
+        return {"type": "reference", "referent": referent}
+
+    def _apply_section_references(self):
+        """Reformat taxonomy.primary_section and taxonomy.sections to use reference format."""
         orig_primary_section_id = self.ans["taxonomy"]["primary_section"]["_id"]
+        
         if self.target_section:
-            section_reference = {
-                "type": "reference",
-                "referent": {
-                    "id": self.target_section,
-                    "type": "section",
-                    "website": self.target_website,
-                    "referent_properties": {"additional_properties": {"primary": True}},
-                },
-            }
+            # Circulate to only the target section
+            section_reference = self._build_section_reference(self.target_section, is_primary=True)
             self.ans["taxonomy"]["primary_section"] = section_reference
             self.ans["taxonomy"]["sections"] = [section_reference]
-
         else:
-            section_reference = {
-                "type": "reference",
-                "referent": {
-                    "id": orig_primary_section_id,
-                    "type": "section",
-                    "website": self.target_website,
-                    "referent_properties": {"additional_properties": {"primary": True}},
-                },
-            }
-            self.ans["taxonomy"]["primary_section"] = section_reference
+            # Keep original sections but on target website
+            self.ans["taxonomy"]["primary_section"] = self._build_section_reference(
+                orig_primary_section_id, is_primary=True
+            )
             for index, s in enumerate(self.ans["taxonomy"]["sections"]):
                 section_id = s["_id"]
-                section_reference = {
-                    "type": "reference",
-                    "referent": {
-                        "id": section_id,
-                        "type": "section",
-                        "website": self.target_website,
-                    },
-                }
-                self.ans["taxonomy"]["sections"][index] = section_reference
+                self.ans["taxonomy"]["sections"][index] = self._build_section_reference(
+                    section_id, is_primary=False
+                )
 
-        # filter the target circulation for only the section and website data; add to self.references for return display
+    def _update_target_circulation_references(self):
+        """Extract target circulation from transformed sections and update references for display."""
         target_circulation = jmespath.search(
             "[*].{section: referent.id, website: referent.website}[]",
             self.ans["taxonomy"]["sections"],
             jmespath.Options(dict_cls=dict),
         )
-        # set information for return display to make clear what changes occurred between source and target circulation
         self.references.circulation.update({self.to_org: target_circulation})
 
     def transform_promo_item(self):

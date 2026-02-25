@@ -511,8 +511,16 @@ class Arc2ArcStory:
             self.references
             self.ans
         """
-        # Are there supporting story references in the ans? Build list of story references and add to self.references return display.
-        # Story ids do not need to be regenerated.
+        self._extract_story_references()
+        self._extract_author_references()
+        self._cleanup_credits_version()
+        self._extract_video_references()
+
+    def _extract_story_references(self):
+        """Extract related story IDs from related_content.basic and set self.references.related_stories.
+        
+        Story IDs do not need to be regenerated when moving between orgs.
+        """
         self.references.related_stories = (
             jmespath.search(
                 "related_content.basic[?referent && referent.type == `story`]._id",
@@ -521,24 +529,32 @@ class Arc2ArcStory:
             or []
         )
 
-        # Are there author references in the ans? Build list of author references and add to self.references for return display.
-        # Author ids do not need to be regenerated.
+    def _extract_author_references(self):
+        """Extract author IDs from credits.by and set self.references.authors.
+        
+        Author IDs do not need to be regenerated when moving between orgs.
+        """
         self.references.authors = jmespath.search("credits.by[*].referent.id", self.ans) or []
 
-        # credits.by in guest/local format won't pass validation if `.version` property is included, and is
-        #   also mismatched with current top-level `.version` property. Leave credits.by author information, remove  `.version` property.
+    def _cleanup_credits_version(self):
+        """Remove .version from credits.by entries so ANS passes validation.
+        
+        credits.by in guest/local format won't pass validation if .version property is included,
+        and is also mismatched with current top-level .version property.
+        """
         authors = jmespath.search("credits.by[*].name", self.ans)
         if authors:
             for index, c in enumerate(self.ans["credits"]["by"]):
                 try:
                     self.ans["credits"]["by"][index].pop("version", None)
                 except (KeyError, IndexError, TypeError):
-                    # version key doesn't exist or structure is invalid - continue
                     pass
 
-        # Build list of video references and add to return display. Video ids do not need to be regenerated.
-        # Filter content_elements, promo_items.lead_art, promo_items.basic, related_content for
-        # `referent.type: video` and select out the `referent._id` to add to the self.references for return display
+    def _extract_video_references(self):
+        """Extract video IDs from content_elements, promo_items, and related_content; set self.references.videos.
+        
+        Video IDs do not need to be regenerated when moving between orgs.
+        """
         ce_vids = (
             jmespath.search(
                 "content_elements[?referent && referent.type == `video`]._id", self.ans

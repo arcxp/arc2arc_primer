@@ -137,3 +137,11 @@ A method that creates a new arc id, used from within the transformation scripts.
 
 ### dist_ref_id.py
 Methods that work to create new distributors and geographic references, used from with the transformation scripts.
+
+### arc_constants.py
+Constants used across arc2arc transformation scripts. This module provides a single source of truth for values that are shared by multiple scripts.
+
+- **`ANS_VERSION_STANDARD`** — Used for stories, galleries, and images. These content types use the standard ANS schema version when transforming and validating. **_Update this to the 
+current production version value of ANS_** (https://github.com/washingtonpost/ans-schema/)
+- **`ANS_VERSION_VIDEO`** (`"0.8.0"`) — Used for videos. Video content uses a different ANS schema version than other content types and is pinned to this version value of ANS.
+
